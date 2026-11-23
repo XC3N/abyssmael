@@ -2,7 +2,7 @@
   "firmwares": [
     {
       "id": "ambient",
-      "name": "AMBIENT",
+      "name": "Abyssmael",
       "version": "0.3 (dev build)",
       "product": "FM-1_5800",
       "file": "ambient/ambient.fwsc",
