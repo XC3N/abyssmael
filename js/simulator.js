@@ -1,11 +1,16 @@
 // "Try it" panel: the firmware's own code, compiled to WebAssembly, playing through Web Audio, with the FM-1's controls on screen.
 // The firmware entry in firmwares.json has a "sim" block: { wasm, knobs:[{label,enc,get}], buttons:[{label,id,get?}], keys, firstNote, status }
+// or, for a firmware whose sim draws its own screen, { wasm, panel: true, keys, firstNote, status }: the FM-1's whole panel
+// (the screen, the 7 encoders, the 14 buttons and the keys, lit as the firmware lights them: sim_get 7..10).
 const SR = 44100;
 const NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 export const noteName = (n) => (n < 0 ? "-" : NAMES[n % 12] + (Math.floor(n / 12) - 1));
 const WHITE = [0, 2, 4, 6, 7, 9, 11, 12, 14, 16, 18, 19, 21, 23, 24, 26];
 const BLACK = [1, 3, 5, 8, 10, 13, 15, 17, 20, 22, 25];
 const KEYMAP = "awsedftgyhujkolp;'";            // computer keyboard -> keys from index 7 (C4)
+// the FM-1's panel, in plat.h's order (B_FX .. B_OCTUP, EN_SELECT .. EN_K4)
+const BUTTONS = ["FX", "SEL", "ENV", "LFO", "EDIT", "GLO", "HOME", "SAVE", "ARP", "SEQ", "PLAY", "REC", "OCT-", "OCT+"];
+const ENCODERS = ["SELECT", "ALGO", "PRESET", "K1", "K2", "K3", "K4"];
 
 const h = (tag, attrs = {}, ...kids) => {
   const e = document.createElement(tag);
@@ -49,6 +54,7 @@ export class Simulator {
   send(m) { this.node.port.postMessage(m); }
 
   build() {
+    if (this.cfg.panel) return this.buildPanel();
     const c = this.cfg, root = this.root;
     this.say = h("div", { class: "simsay", "aria-live": "polite" }, this.fw.name);
     this.statusEl = h("div", { class: "simstatus" });
@@ -89,6 +95,71 @@ export class Simulator {
     root.replaceChildren(this.say, this.statusEl, knobs, btns, nk ? kb : "", nk ? h("p", { class: "meta" }, "Play the keys with the mouse or touch, or the computer keyboard (A W S E D F T G Y H U J K…).") : "", this.canvas, h("label", { class: "simvol" }, h("span", {}, "Volume"), volume));
   }
 
+  // the whole panel: screen, encoders (drag, wheel, arrow keys or the - / + buttons), buttons and keys
+  buildPanel() {
+    const c = this.cfg;
+    this.say = h("div", { class: "simsay sr", "aria-live": "polite" }, "");
+    this.statusEl = h("div", { class: "simstatus" });
+    this.screen = h("canvas", { width: 240, height: 240, class: "simscreen", role: "img", "aria-label": "The FM-1's screen" });
+    this.img = this.screen.getContext("2d").createImageData(240, 240);
+    const encs = h("div", { class: "simencs" }, ENCODERS.map((name, role) => this.encoder(name, role)));
+    const btns = h("div", { class: "simpanel" }, BUTTONS.map((label, id) => {
+      const e = h("button", { class: "pbtn", type: "button", "aria-label": label }, label);
+      const press = (d) => (ev) => { ev?.preventDefault?.(); if (d === 1 && e.dataset.down === "1") return; e.dataset.down = d ? "1" : ""; this.send({ t: "btn", id, d }); };
+      e.onpointerdown = (ev) => { e.setPointerCapture?.(ev.pointerId); press(1)(ev); };
+      e.onpointerup = e.onpointercancel = press(0);
+      e.onkeydown = (ev) => { if ((ev.key === " " || ev.key === "Enter") && !ev.repeat) press(1)(ev); };
+      e.onkeyup = (ev) => { if (ev.key === " " || ev.key === "Enter") press(0)(ev); };
+      e.oncontextmenu = (ev) => ev.preventDefault();
+      this.btnEls[id] = e;
+      return e;
+    }));
+    const nk = c.keys || 27, kb = h("div", { class: "simkeys", role: "group", "aria-label": "Keys" });
+    WHITE.forEach((k, i) => kb.append(this.key(k, "w", i * (100 / WHITE.length), 100 / WHITE.length)));
+    BLACK.forEach((k) => {
+      const left = WHITE.findIndex((w) => w > k) - 1;
+      kb.append(this.key(k, "b", (left + 1) * (100 / WHITE.length) - 100 / WHITE.length * 0.3, 100 / WHITE.length * 0.6));
+    });
+    const volume = h("input", { type: "range", min: 0, max: 100, value: 50, "aria-label": "Volume" });
+    volume.oninput = () => { this.vol.gain.value = (volume.value / 100) ** 2; };
+    this.vol.gain.value = 0.25;
+    this.canvas = h("canvas", { width: 600, height: 80, class: "scope", "aria-label": "Output waveform" });
+    this.root.replaceChildren(
+      h("div", { class: "simdev" }, h("div", { class: "simtop" }, this.screen, encs), btns, kb),
+      this.statusEl, this.say,
+      h("p", { class: "meta" }, c.help || "Turn an encoder by dragging it up or down, with the mouse wheel, or with its - and + buttons. Play the keys with the mouse, touch, or the computer keyboard (A W S E D F T G Y H U J K…)."),
+      this.canvas, h("label", { class: "simvol" }, h("span", {}, "Volume"), volume));
+    void nk;
+  }
+
+  encoder(name, role) {
+    const turn = (d) => { if (d) { this.send({ t: "enc", role, d }); knob.style.setProperty("--a", ((+knob.dataset.a || 0) + d * 15) + "deg"); knob.dataset.a = String((+knob.dataset.a || 0) + d * 15); } };
+    const knob = h("div", { class: "knob", tabindex: "0", role: "slider", "aria-label": name + " encoder" });
+    let y0 = null, acc = 0;
+    knob.onpointerdown = (ev) => { knob.setPointerCapture(ev.pointerId); y0 = ev.clientY; acc = 0; ev.preventDefault(); };
+    knob.onpointermove = (ev) => {
+      if (y0 === null) return;
+      acc += y0 - ev.clientY; y0 = ev.clientY;
+      const d = Math.trunc(acc / 6); if (d) { acc -= d * 6; turn(d); }
+    };
+    knob.onpointerup = knob.onpointercancel = () => { y0 = null; };
+    knob.onwheel = (ev) => { ev.preventDefault(); turn(ev.deltaY < 0 ? 1 : -1); };
+    knob.onkeydown = (ev) => {
+      const d = { ArrowUp: 1, ArrowRight: 1, ArrowDown: -1, ArrowLeft: -1, PageUp: 5, PageDown: -5 }[ev.key];
+      if (d) { ev.preventDefault(); turn(d); }
+    };
+    const step = (d, t) => {
+      const b = h("button", { class: "kstep", type: "button", "aria-label": name + (d < 0 ? " down" : " up") }, t);
+      let rep = null;
+      const stop = () => { clearTimeout(rep); clearInterval(rep); rep = null; };
+      b.onpointerdown = (ev) => { ev.preventDefault(); turn(d); stop(); rep = setTimeout(() => { rep = setInterval(() => turn(d), 70); }, 350); };
+      b.onpointerup = b.onpointercancel = b.onpointerleave = stop;
+      b.onkeydown = (ev) => { if (ev.key === " " || ev.key === "Enter") { ev.preventDefault(); turn(d); } };
+      return b;
+    };
+    return h("div", { class: "enc" + (role >= 3 ? " k" : "") }, knob, h("div", { class: "encrow" }, step(-1, "−"), step(1, "+")), h("span", { class: "encname" }, name));
+  }
+
   key(k, cls, left, width) {
     const e = h("div", { class: "simkey " + cls, style: `left:${left}%;width:${width}%`, "data-k": k });
     const on = (d) => { if (d === 1 ? !this.down.has(k) : this.down.has(k)) { d ? this.down.add(k) : this.down.delete(k); this.send({ t: "key", k, d }); e.classList.toggle("on", !!d); } };
@@ -113,6 +184,25 @@ export class Simulator {
 
   onState(m) {
     if (m.state) this.state = m.state;
+    if (m.fb && this.img) {
+      const d = this.img.data, fb = m.fb;
+      for (let i = 0; i < fb.length; i++) {
+        const c = ((fb[i] & 0xff) << 8) | (fb[i] >> 8);
+        d[4 * i] = ((c >> 11) & 31) * 255 / 31; d[4 * i + 1] = ((c >> 5) & 63) * 255 / 63; d[4 * i + 2] = (c & 31) * 255 / 31; d[4 * i + 3] = 255;
+      }
+      this.screen.getContext("2d").putImageData(this.img, 0, 0);
+    }
+    if (this.cfg.panel) {
+      const s = this.state;
+      this.btnEls.forEach((e, i) => { e.classList.toggle("lit", !!(s[7] >> i & 1)); e.classList.toggle("dim", !(s[7] >> i & 1) && !!(s[9] >> i & 1)); });
+      this.keyEls.forEach((e, k) => { if (e) { e.classList.toggle("lit", !!(s[8] >> k & 1)); e.classList.toggle("dim", !(s[8] >> k & 1) && !!(s[10] >> k & 1)); } });
+      if (m.say) this.say.textContent = m.say;
+      this.statusEl.replaceChildren(...(this.cfg.status || []).map((st) => {
+        const v = s[st.get];
+        return h("span", {}, h("b", {}, st.label + " "), st.names ? (st.names[v] ?? String(v)) : st.fmt === "page" ? (Math.floor(v / 10) + "." + (v % 10 + 1)) : String(st.add ? v + st.add : v), " ");
+      }));
+      return;
+    }
     if (m.say) { this.say.textContent = m.say; clearTimeout(this.sayT); this.sayT = setTimeout(() => (this.say.textContent = this.fw.name), 1800); }
     const s = this.state, c = this.cfg;
     (c.knobs || []).forEach((k, i) => {

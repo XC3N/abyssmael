@@ -1,45 +1,69 @@
 {
   "firmwares": [
     {
-      "id": "ambient-test",
-      "name": "AMBIENT TEST",
-      "version": "0.0 (dev build)",
+      "id": "ambient",
+      "name": "AMBIENT",
+      "version": "0.1 (dev build)",
       "product": "FM-1_5800",
-      "file": "ambient-test/ambient.fwsc",
-      "sha256": "a2ac9ff442b2ade7a352c2271e4e6d82d9be51b1eefa9a0cf8b8d36cad35a59c",
-      "description": "A generative ambient test: a slow drone that drifts to new roots, random minor-pentatonic FM bells and a stereo feedback delay. Starts playing at power-on; the keys play a soft pad.",
+      "file": "ambient/ambient.fwsc",
+      "sha256": "8f6dea9e217adf0350388034a4275daf12d0b670485990210c040175662effc7",
+      "description": "A six-track generative ambient firmware. Each track has its own instrument (DRONE, PAD, BELL, PLUCK, TEXTURE), envelope, filter, two LFOs, a generator and an arpeggio. A global delay, a shimmer reverb and an AGE layer (tape hiss, vinyl crackle, wow and flutter). Four scenes: DEEP, GLASS, TIDE, VOID. Plays from power-on.",
       "controls": [
         [
-          "K1 DARK",
-          "Darker drone filter, softer bells"
+          "SELECT",
+          "Pick the track (1 to 6)"
         ],
         [
-          "K2 ACTIVITY",
-          "How often bells ring (0.05 to 2.5 a second)"
+          "ALGO",
+          "Change the track's instrument"
         ],
         [
-          "K3 DECAY",
-          "How long bells ring (0.6 to 10 s)"
+          "PRESET",
+          "Change scene"
         ],
         [
-          "K4 SPACE",
-          "Delay amount and feedback"
+          "K1 to K4",
+          "The four parameters on the screen"
+        ],
+        [
+          "HOME",
+          "The 6 tracks and the DARK, ACTIVITY, SPACE macros"
+        ],
+        [
+          "EDIT / ENV / LFO / SEQ",
+          "The track's sound, envelope and filter, LFOs, generator (press again for page 2)"
+        ],
+        [
+          "ARP",
+          "The track's arpeggio"
+        ],
+        [
+          "FX",
+          "Track mix, then delay, then shimmer reverb"
+        ],
+        [
+          "GLO",
+          "Key and tempo, drift and tuning, then AGE: hiss, crackle, wow"
+        ],
+        [
+          "SEL",
+          "Scale mode: white keys play the scale, black keys pick tracks (1-6), pages (7-9), mute, solo"
         ],
         [
           "PLAY",
-          "Start / stop (fades)"
+          "Start / stop"
         ],
         [
-          "SEQ",
-          "New random root"
-        ],
-        [
-          "OCT- / OCT+",
-          "Pad octave"
+          "REC",
+          "Latch held notes"
         ],
         [
           "SAVE",
-          "Keep the knobs and root"
+          "Save the scene"
+        ],
+        [
+          "OCT- / OCT+",
+          "Octave"
         ]
       ],
       "tags": [
@@ -48,75 +72,26 @@
       ],
       "license": "MPL-2.0",
       "credits": "Built on fm1-base by Charles Vestal and felucca-bsp by Leo Kuroshita.",
-      "preview": "ambient-test/preview.mp3",
+      "preview": "ambient/preview.mp3",
       "sim": {
-        "wasm": "ambient-test/sim.wasm",
-        "knobs": [
-          {
-            "label": "K1 DARK",
-            "enc": 3,
-            "get": 5
-          },
-          {
-            "label": "K2 ACTIVITY",
-            "enc": 4,
-            "get": 6
-          },
-          {
-            "label": "K3 DECAY",
-            "enc": 5,
-            "get": 7
-          },
-          {
-            "label": "K4 SPACE",
-            "enc": 6,
-            "get": 8
-          }
-        ],
-        "buttons": [
-          {
-            "label": "PLAY",
-            "id": 10,
-            "get": 0
-          },
-          {
-            "label": "SEQ (new root)",
-            "id": 9
-          },
-          {
-            "label": "OCT-",
-            "id": 12
-          },
-          {
-            "label": "OCT+",
-            "id": 13
-          },
-          {
-            "label": "SAVE",
-            "id": 7
-          }
-        ],
+        "wasm": "ambient/sim.wasm",
+        "panel": true,
         "keys": 27,
         "firstNote": 53,
         "status": [
           {
-            "label": "Root",
-            "get": 1,
-            "fmt": "note"
+            "label": "Scene",
+            "get": 5,
+            "names": [
+              "DEEP",
+              "GLASS",
+              "TIDE",
+              "VOID"
+            ]
           },
           {
-            "label": "Pad",
-            "get": 2,
-            "fmt": "note"
-          },
-          {
-            "label": "Last bell",
-            "get": 4,
-            "fmt": "note"
-          },
-          {
-            "label": "Bells",
-            "get": 3
+            "label": "Voices",
+            "get": 6
           }
         ]
       }
