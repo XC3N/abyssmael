@@ -92,7 +92,8 @@ a { color: var(--accent); }
 .simkey.w.dim { background: #c8dcf0; } .simkey.b.dim { background: #3d5470; }
 .simkey.w.lit { background: #8cc2ff; } .simkey.b.lit { background: #5aa0e6; }
 .simctl { display: flex; flex-direction: column; gap: 10px; flex: 1; min-width: 270px; }
-.grp { border: 1px solid #2f3238; border-radius: 10px; padding: 6px 8px 8px; }
+.grp { border: 1px solid #2f3238; border-radius: 10px; padding: 8px; }
+.grp:has(> .grptitle) { padding-top: 6px; }
 .grptitle { display: block; font-size: .65rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: #8d9098; margin-bottom: 6px; }
 .grpbody { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; justify-items: center; }
 .simpanel { margin: 0; }

@@ -105,7 +105,7 @@ export class Simulator {
     const grp = (cls, title, kids) => h("div", { class: "grp " + cls, role: "group", "aria-label": title }, h("span", { class: "grptitle" }, title), h("div", { class: "grpbody" }, kids));
     // like the panel: SELECT, ALGO and PRESET together with the master volume; the four macro knobs apart
     const master = this.masterKnob();
-    const nav = grp("nav", "Browse", [this.encoder("SELECT", 0), this.encoder("ALGO", 1), this.encoder("PRESET", 2), master]);
+    const nav = h("div", { class: "grp nav", role: "group", "aria-label": "Master, select, preset, algorithm" }, h("div", { class: "grpbody" }, [master, this.encoder("SELECT", 0), this.encoder("PRESET", 2), this.encoder("ALGO", 1)]));   // the panel's order: MASTER SELECT PRESET ALGO
     const macros = grp("macros", "Macros", [3, 4, 5, 6].map((r) => this.encoder(ENCODERS[r], r)));
     const button = (id) => {
       const label = BUTTONS[id];
