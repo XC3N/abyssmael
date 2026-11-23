@@ -1,0 +1,176 @@
+# ABYSSMAEL 0.4 in the host simulator
+wait 600
+expect playing 1
+expect scale_mode 1
+expect track 0
+expect page 0
+shot home.png
+wav deep.wav
+wait 20000
+wavstop
+expect peak_db_min -30
+expect voices >0
+# HOME: black keys pick tracks (groups of three)
+tapkey b5
+wait 40
+expect track 3
+tapkey b0
+wait 40
+expect track 0
+# EDIT: pages on b0..b2, track on b3/b4, instruments on b5..b9
+tap EDIT
+wait 40
+expect page 10
+tapkey b1
+wait 40
+expect page 11
+tapkey b0
+wait 40
+expect page 10
+tapkey b4
+wait 40
+expect track 1
+tapkey b8
+wait 1500
+expect inst 3
+expect dirty 1
+shot edit_keys.png
+# ARP: patterns
+tap ARP
+wait 40
+tapkey b7
+wait 40
+expect arp 2
+tapkey b5
+wait 40
+expect arp 0
+# SEQ: GEN mode, lock the motif
+tap SEQ
+wait 40
+expect page 40
+tapkey b9
+wait 40
+expect dejavu 100
+shot seq_keys.png
+# EUCLID on the pattern page, notes for the hits
+tapkey b2
+wait 40
+expect page 42
+tapkey b6
+wait 40
+expect smode 1
+shot euclid.png
+tapkey b8
+wait 40
+expect note_edit 1
+expect cursor 0
+tapkey w4
+wait 40
+expect hn0 4
+expect cursor 1
+tapkey w7
+wait 40
+expect hn1 7
+tapkey b9
+wait 40
+expect cursor 3
+shot euclid_notes.png
+tapkey b8
+wait 40
+expect note_edit 0
+wav euclid.wav
+wait 8000
+wavstop
+shot euclid_play.png
+# STEP: white keys are the steps
+tapkey b7
+wait 40
+expect smode 2
+expect son 18761
+tapkey w1
+wait 40
+expect son 18763
+key w0 down
+wait 40
+turn K1 2
+key w0 up
+wait 40
+expect sn0 2
+expect son 18763
+wav step.wav
+wait 8000
+wavstop
+shot step.png
+tapkey b5
+wait 40
+expect smode 0
+# FX page 3 through its key
+tap FX
+wait 40
+tapkey b2
+wait 40
+expect page 62
+shot fx_keys.png
+# MIX: tap to open, mute 2 and 5, solo 4, clear
+tapkey b10
+wait 40
+expect page 80
+tapkey b1
+tapkey b6
+wait 40
+expect mutes 18
+shot mix_mute.png
+tapkey b4
+wait 40
+expect mix_mode 1
+tapkey b5
+wait 40
+expect solos 8
+shot mix_solo.png
+wav solo.wav
+wait 6000
+wavstop
+tapkey b9
+wait 40
+expect solos 0
+tapkey b8
+wait 40
+expect mutes 0
+tapkey b10
+wait 40
+expect page 62
+# MIX held: only while held
+key b10 down
+wait 800
+expect page 80
+key b10 up
+wait 40
+expect page 62
+# GLO: scenes on b5..b8
+tap GLO
+wait 40
+tapkey b6
+wait 100
+expect scene 1
+shot glo_keys.png
+wav glass.wav
+wait 20000
+wavstop
+tapkey b8
+wait 100
+expect scene 3
+wav void.wav
+wait 20000
+wavstop
+# scale mode off: the old footer
+tap SEL
+wait 40
+expect scale_mode 0
+shot noscale.png
+tap SEL
+tap PLAY
+wait 30
+expect playing 0
+tapkey b9
+wait 60
+expect dirty 0

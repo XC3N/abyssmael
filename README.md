@@ -10,7 +10,7 @@ Run locally: `python3 -m http.server 8000` in this folder, open http://localhost
    `product` = the package identity, e.g. `FM-1_5800`, `file`, `sha256`, `description`, optional `controls`, `preview`).
    `sha256sum file.fwsc` gives the hash; the page refuses a file whose hash or identity differs from the list.
 2. Optional "Try in browser": build the firmware's simulator with `scripts/build-sim.sh <app source dir> <sim.c> <out.wasm>`
-   (see `firmware/ambient/sim/sim.c`: the app's own app.c and fm1-base's gfx.c against a small host platform; a sim with a screen needs `SIM_MEM=4194304`), then add a `sim` block
+   (see `firmware/ambient/sim/sim.c`: the app's own app.c and fm1-base's gfx.c against a small host platform; a sim with a screen needs `SIM_MEM=4194304`; Abyssmael builds from `src/` with `SIM_UNITS="core.c seq.c engines.c fx.c"`, see `src/MODULES.md`), then add a `sim` block
    to its entry (knobs, buttons, keys, status values). The page builds the controls from it.
 
 ## Safety checks (same as fm1_install.py)

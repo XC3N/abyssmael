@@ -1,11 +1,11 @@
 /* SPDX-License-Identifier: MPL-2.0 */
-/* AMBIENT: a generative ambient firmware on fm1-base. Six tracks, each with its own instrument, envelope, filter,
+/* ABYSSMAEL: a generative ambient firmware on fm1-base. Six tracks, each with its own instrument, envelope, filter,
  * two LFOs, a generator and an arpeggio; a global delay, a shimmer reverb and an AGE layer (hiss, crackle, wow). */
 #pragma once
 #include <stdint.h>
 #include "plat.h"
 
-#define APP_NAME "AMBIENT"
+#define APP_NAME "ABYSSMAEL"
 #define APP_SPLASH_RGB RGB(90, 150, 220)
 #define APP_BLOCK 256u                   /* frames per audio block: 5.8 ms at 44.1 kHz */
 

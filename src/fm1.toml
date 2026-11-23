@@ -1,0 +1,21 @@
+# ABYSSMAEL build settings (tools/build.py)
+name = "ABYSSMAEL"
+id_prefix = "FM-1_58"          # package identity: dev FM-1_5800, releases FM-1_58XXYYZZ
+usb_manufacturer = "fm1-base"
+usb_product = "ABYSSMAEL FM-1"
+o2 = ["core.c", "seq.c", "engines.c", "fx.c"]
+words = "words.tsv"
+ble = false
+companion = false
+tagline = "six-track generative ambient"
+repo = ""
+licence = "MPL-2.0"
+credits = "Built on fm1-base by Charles Vestal and felucca-bsp by Leo Kuroshita."
+author = ""
+description = "Six-track generative ambient: drone, pad, FM bell, pluck and texture voices, a shimmer reverb and tape age, with the black keys as the screen's submenus."
+tags = ["synth", "generative"]
+install = ""
+site = ""
+screenshot = ""
+cpu2 = true
+cpu2_fallback = true

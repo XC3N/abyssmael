@@ -67,6 +67,13 @@ void plat_midi_send(uint32_t pkt, uint32_t to) { (void)pkt; (void)to; }
 int plat_store_load(uint32_t obj, void *dst, uint32_t max) { (void)obj; if (st_len < 0) return -1; memcpy(dst, st_buf, (unsigned long)st_len < max ? (unsigned long)st_len : max); return st_len; }
 int plat_store_save(uint32_t obj, const void *src, uint32_t len) { (void)obj; if (len > sizeof st_buf) return -8; memcpy(st_buf, src, len); st_len = (int)len; return 0; }
 uint32_t plat_cpu_pct(void) { return 0; }
+/* no second core in the browser: one core does it all */
+int plat_cpu2_set(int on) { (void)on; return -1; }
+int plat_cpu2_on(void) { return 0; }
+int plat_cpu2_run(void (*fn)(uint32_t), uint32_t arg) { (void)fn; (void)arg; return 0; }
+int plat_cpu2_wait(void) { return 0; }
+void plat_cpu2_sync(void) {}
+int plat_cpu2_busy(void) { return 0; }
 
 #include "app.c"
 
