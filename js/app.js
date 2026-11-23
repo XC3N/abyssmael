@@ -91,6 +91,7 @@ async function loadList() {
     return;
   }
   box.replaceChildren(...firmwares.map(card));
+  $("trylist").replaceChildren(...firmwares.filter((f) => f.sim).map(tryCard));
   refreshButtons();
 }
 
@@ -105,10 +106,16 @@ function card(fw) {
     fw.preview ? h("audio", { controls: "", preload: "none", src: "firmware/" + fw.preview }) : "",
     fw.controls ? h("details", {}, h("summary", {}, "Controls"), h("table", {}, fw.controls.map(([a, b]) => h("tr", {}, h("td", {}, a), h("td", {}, b))))) : "",
     fw.credits ? h("p", { class: "meta" }, fw.credits) : "",
-    h("div", { class: "row" }, btn, fw.sim ? tryBtn(fw) : ""));
+    h("div", { class: "row" }, btn));
 }
 
 // the in-browser simulator (js/simulator.js): hear a firmware without flashing it
+function tryCard(fw) {
+  return h("div", { class: "panel fw" },
+    h("h3", {}, fw.name), h("div", { class: "meta" }, fw.version),
+    h("p", {}, "Play it here with no FM-1 and nothing to install. Works on phones too."),
+    h("div", { class: "row" }, tryBtn(fw)));
+}
 let sim = null;
 function tryBtn(fw) {
   const b = h("button", { class: "ghost", type: "button" }, "Try in browser");
