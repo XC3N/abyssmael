@@ -48,7 +48,7 @@ uint32_t track_audible(uint32_t t)
 uint8_t seq_pos[NTRK], seq_cur[NTRK];
 static int8_t seq_dir[NTRK] = {1, 1, 1, 1, 1, 1};
 uint8_t eu_hits_now[NTRK], eu_rot_now[NTRK];
-static uint16_t seq_n[NTRK];             /* steps run since play started: pass = seq_n / length */
+static uint32_t seq_n[NTRK];             /* steps run since play started: pass = seq_n / length */
 static int8_t drift_h[NTRK], drift_r[NTRK];   /* EUCL DRIFT: how far the hits and rotation have wandered */
 static uint8_t prev_ok[NTRK];            /* the last tested hit played (for PRE) */
 static uint32_t last_play[NTRK];         /* the clock tick of a track's last note, plus one */
