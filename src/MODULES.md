@@ -52,7 +52,7 @@ Browser simulator (needs clang with wasm32):
 
 ```
 SIM_MEM=4194304 SIM_UNITS="core.c seq.c engines.c fx.c" \
-  scripts/build-sim.sh src firmware/ambient/sim/sim.c firmware/ambient/sim.wasm
+  scripts/build-sim.sh src firmware/abyssmael/sim/sim.c firmware/abyssmael/sim.wasm
 ```
 
 ## Who works where
