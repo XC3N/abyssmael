@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: MPL-2.0 */
-/* AMBIENT 0.2: six tracks of generative ambient on fm1-base.
+/* AMBIENT 0.3: six tracks of generative ambient on fm1-base.
  *
  *   SELECT  the track (1-6)        ALGO  its instrument        PRESET  the scene (1-4)
  *   HOME EDIT ENV LFO SEQ ARP FX GLO   a page of four values for K1-K4; press again for the next page
@@ -48,6 +48,10 @@ static const char *const OFF_ON[2] = {"OFF", "ON"};
 static const char *const MOVE_NAME[4] = {"FIFTH", "FOURTH", "STEP", "ANY"};
 static const char *const THEME_NAME[5] = {"GREEN", "AMBER", "CYAN", "RED", "MONO"};
 static const char *const SCENE_NAME[4] = {"DEEP", "GLASS", "TIDE", "VOID"};
+static const char *const SEQ_MODE[3] = {"GENERATOR", "EUCLID", "STEP SEQ"};
+static const char *const SEQ_MODE_S[3] = {"GEN", "EUCL", "STEP"};
+static const char *const DIR_NAME[4] = {"FWD", "BACK", "PING", "RAND"};
+#define REST 31u                         /* a Euclidean hit's note: none */
 
 /* ------------------------------------------------------------------ scene --- */
 enum {   /* a track's values */
@@ -55,6 +59,7 @@ enum {   /* a track's values */
     TP_ATK, TP_DEC, TP_SUS, TP_REL, TP_CUT, TP_RES, TP_FENV, TP_KEYT,
     TP_L1RATE, TP_L1DEP, TP_L1SHP, TP_L1TGT, TP_L2RATE, TP_L2DEP, TP_L2SHP, TP_L2TGT,
     TP_DENS, TP_RATE, TP_GATE, TP_RANGE, TP_STEPS, TP_DEJAVU, TP_OCT, TP_ACCENT,
+    TP_SMODE, TP_EHITS, TP_ELEN, TP_EROT, TP_ECHANCE, TP_SLEN, TP_SDIR, TP_SCHANCE, TP_SMUT,
     TP_ARPON, TP_ARPRATE, TP_ARPPAT, TP_ARPGATE,
     TP_LEVEL, TP_PAN, TP_DSEND, TP_RSEND, TP_MUTE, TP_SOLO, NTP
 };
@@ -67,6 +72,9 @@ enum {   /* the scene's global values */
 typedef struct {
     uint8_t gp[NGP];
     uint8_t tp[NTRK][NTP];
+    uint8_t hn[NTRK][16];                /* EUCLID: each hit's note, a scale degree (0-15) or REST */
+    uint8_t sn[NTRK][16];                /* STEP: each step's note, a scale degree (0-15) */
+    uint16_t son[NTRK];                  /* STEP: the steps that play (bits) */
 } scene_t;
 
 enum { K_PCT, K_ENUM, K_OCT, K_NOTE, K_BPM, K_CENT, K_INSTP };
@@ -88,6 +96,10 @@ static const pdesc_t TPD[NTP] = {
     {"DENSITY", 0, 100, K_PCT, 2, 0}, {"RATE", 0, 6, K_ENUM, 1, RATE_NAME}, {"LENGTH", 0, 100, K_PCT, 2, 0},
     {"RANGE", 0, 100, K_PCT, 2, 0}, {"STEPS", 1, 16, K_PCT, 1, 0}, {"DEJA VU", 0, 100, K_PCT, 2, 0},
     {"OCTAVE", 0, 6, K_OCT, 1, 0}, {"ACCENT", 0, 100, K_PCT, 2, 0},
+    {"SEQ MODE", 0, 2, K_ENUM, 1, SEQ_MODE}, {"HITS", 0, 16, K_PCT, 1, 0}, {"STEPS", 1, 16, K_PCT, 1, 0},
+    {"ROTATE", 0, 15, K_PCT, 1, 0}, {"CHANCE", 0, 100, K_PCT, 2, 0},
+    {"STEPS", 1, 16, K_PCT, 1, 0}, {"DIRECTION", 0, 3, K_ENUM, 1, DIR_NAME}, {"CHANCE", 0, 100, K_PCT, 2, 0},
+    {"MUTATE", 0, 100, K_PCT, 2, 0},
     {"ARP", 0, 1, K_ENUM, 1, OFF_ON}, {"ARP RATE", 0, 3, K_ENUM, 1, ARP_RATE},
     {"PATTERN", 0, 3, K_ENUM, 1, ARP_PAT}, {"ARP GATE", 0, 100, K_PCT, 2, 0},
     {"LEVEL", 0, 100, K_PCT, 2, 0}, {"PAN", 0, 100, K_PCT, 2, 0}, {"DELAY SEND", 0, 100, K_PCT, 2, 0},
@@ -110,20 +122,20 @@ static const pdesc_t GPD[NGP] = {
 enum { PG_HOME, PG_EDIT, PG_ENV, PG_LFO, PG_SEQ, PG_ARP, PG_FX, PG_GLO, PG_MIX, NPG };
 static const char *const PG_NAME[NPG] = {"HOME", "EDIT", "ENV", "LFO", "SEQ", "ARP", "FX", "GLO", "MIX"};
 static const uint8_t PG_BTN[NPG] = {B_HOME, B_EDIT, B_ENV, B_LFO, B_SEQ, B_ARP, B_FX, B_GLO, 0xFFu};   /* MIX: a black key */
-static const uint8_t PG_N[NPG] = {1, 2, 2, 2, 2, 1, 3, 3, 1};
+static const uint8_t PG_N[NPG] = {1, 2, 2, 2, 3, 1, 3, 3, 1};
 static const char *const PG_TITLE[NPG][3] = {
-    {"HOME"}, {"SOUND A", "SOUND B"}, {"AMP ENVELOPE", "FILTER"}, {"LFO 1", "LFO 2"}, {"GENERATOR", "MOTIF"},
+    {"HOME"}, {"SOUND A", "SOUND B"}, {"AMP ENVELOPE", "FILTER"}, {"LFO 1", "LFO 2"}, {"SEQUENCER", "", "PATTERN"},
     {"ARPEGGIO"}, {"TRACK MIX", "DELAY", "SHIMMER REVERB"}, {"KEY AND TIME", "DRIFT", "AGE"}, {"MUTE AND SOLO"}};
 /* the pages' short names, for the black keys */
 static const char *const PG_SHORT[NPG][3] = {
-    {""}, {"SND A", "SND B"}, {"AMP", "FILT"}, {"LFO1", "LFO2"}, {"GEN", "MOTIF"}, {"ARP"}, {"MIX", "DELAY", "VERB"},
+    {""}, {"SND A", "SND B"}, {"AMP", "FILT"}, {"LFO1", "LFO2"}, {"SEQ", "", "PATT"}, {"ARP"}, {"MIX", "DELAY", "VERB"},
     {"KEY", "DRIFT", "AGE"}, {""}};
 static const uint8_t PG_REF[NPG][3][4] = {
     {{G(GP_DARK), G(GP_ACT), G(GP_SPACE), TP_LEVEL}},
     {{TP_P0, TP_P1, TP_P2, TP_P3}, {TP_P4, TP_P5, TP_P6, TP_P7}},
     {{TP_ATK, TP_DEC, TP_SUS, TP_REL}, {TP_CUT, TP_RES, TP_FENV, TP_KEYT}},
     {{TP_L1RATE, TP_L1DEP, TP_L1SHP, TP_L1TGT}, {TP_L2RATE, TP_L2DEP, TP_L2SHP, TP_L2TGT}},
-    {{TP_DENS, TP_RATE, TP_GATE, TP_RANGE}, {TP_STEPS, TP_DEJAVU, TP_OCT, TP_ACCENT}},
+    {{TP_RATE, TP_GATE, TP_OCT, TP_ACCENT}, {0}, {0}},   /* SEQ 2 and 3: the mode's (seq_ref) */
     {{TP_ARPON, TP_ARPRATE, TP_ARPPAT, TP_ARPGATE}},
     {{TP_LEVEL, TP_PAN, TP_DSEND, TP_RSEND}, {G(GP_DTIME), G(GP_DFB), G(GP_DTONE), G(GP_DMIX)},
      {G(GP_RSIZE), G(GP_RDAMP), G(GP_RSHIM), G(GP_RMIX)}},
@@ -132,13 +144,19 @@ static const uint8_t PG_REF[NPG][3][4] = {
     {{TP_LEVEL, TP_PAN, TP_DSEND, TP_RSEND}},
 };
 
-#define STORE_MAGIC 0x414D4232u          /* "AMB2" */
+#define STORE_MAGIC 0x414D4233u          /* "AMB3" */
+
+/* SEQ pages 2 and 3: the track's mode's four values */
+static const uint8_t MODE_REF[3][4] = {{TP_DENS, TP_RANGE, TP_STEPS, TP_DEJAVU},
+                                       {TP_EHITS, TP_ELEN, TP_EROT, TP_ECHANCE},
+                                       {TP_SLEN, TP_SDIR, TP_SCHANCE, TP_SMUT}};
 typedef struct {
     uint32_t magic;
     uint8_t cur, saved, rsv[2];          /* the scene playing; which slots hold a saved scene (bits) */
     scene_t slot[4];
 } store_t;
 static store_t am_store;
+_Static_assert(sizeof(store_t) <= PLAT_STORE_MAX, "the scenes must fit one store object");
 static scene_t sc;                       /* the scene playing: the main loop edits it, the render reads it */
 static uint8_t sc_dirty;
 
@@ -230,6 +248,24 @@ static void scene_factory(scene_t *s, uint32_t n)
         p[TP_DSEND] = GEN[inst][5];
         p[TP_RSEND] = GEN[inst][6];
     }
+    for (t = 0; t < NTRK; t++) {           /* the sequencers' defaults: a five-in-eight, a melody on six steps */
+        static const uint8_t DEF_HN[16] = {0, 2, 4, 7, 4, 2, 0, 5, 0, 2, 4, 7, 9, 7, 4, 2};
+        static const uint8_t DEF_SN[16] = {0, 4, 2, 7, 4, 9, 7, 2, 0, 4, 2, 7, 4, 11, 9, 7};
+        uint32_t i;
+        uint8_t *p = s->tp[t];
+        p[TP_EHITS] = 5;
+        p[TP_ELEN] = 8;
+        p[TP_ECHANCE] = 100;
+        p[TP_SLEN] = 16;
+        p[TP_SCHANCE] = 100;
+        for (i = 0; i < 16u; i++)
+            s->hn[t][i] = DEF_HN[i], s->sn[t][i] = DEF_SN[i];
+        s->son[t] = 0x4949u;
+    }
+    if (n == 2) {                            /* TIDE: a Euclidean pluck and a stepped one */
+        s->tp[1][TP_SMODE] = 1, s->tp[1][TP_RATE] = 1, s->tp[1][TP_EHITS] = 5, s->tp[1][TP_ELEN] = 8;
+        s->tp[5][TP_SMODE] = 2, s->tp[5][TP_RATE] = 1, s->tp[5][TP_OCT] = 4, s->tp[5][TP_SDIR] = 2;
+    }
     if (n == 0)                              /* DEEP: the second bell an octave lower */
         s->tp[5][TP_OCT] = 2, s->tp[5][TP_DENS] = 15, s->tp[5][TP_RATE] = 2;
 }
@@ -243,6 +279,10 @@ static int scene_ok(const scene_t *s)
     for (t = 0; t < NTRK; t++)
         for (i = 0; i < NTP; i++)
             if (s->tp[t][i] < TPD[i].lo || s->tp[t][i] > TPD[i].hi)
+                return 0;
+    for (t = 0; t < NTRK; t++)
+        for (i = 0; i < 16u; i++)
+            if ((s->hn[t][i] > 15u && s->hn[t][i] != REST) || s->sn[t][i] > 15u)
                 return 0;
     return 1;
 }
@@ -562,6 +602,65 @@ static uint32_t track_audible(uint32_t t)
     return solo ? sc.tp[t][TP_SOLO] : !sc.tp[t][TP_MUTE];
 }
 
+/* EUCLID and STEP: where each track is in its pattern (the step played last, for the screen) */
+static uint8_t seq_pos[NTRK], seq_cur[NTRK];
+static int8_t seq_dir[NTRK] = {1, 1, 1, 1, 1, 1};
+
+/* a Euclidean pattern: step j (0..len-1) is a hit when (j * hits) mod len < hits; its hit number (j * hits) / len */
+static int32_t eu_hit(uint32_t j, uint32_t hits, uint32_t len)
+{
+    if (hits > len)
+        hits = len;
+    return (j * hits) % len < hits ? (int32_t)(j * hits / len) : -1;
+}
+
+static void pat_step(uint32_t t, float tick_s, uint32_t rt, int32_t oct)
+{
+    const uint8_t *p = sc.tp[t];
+    int32_t deg = -1;
+    uint32_t len, k;
+    float chance;
+    if (p[TP_SMODE] == 1u) {                 /* EUCLID */
+        int32_t h;
+        len = p[TP_ELEN];
+        k = seq_pos[t] % len;
+        seq_pos[t] = (uint8_t)((k + 1u) % len);
+        seq_cur[t] = (uint8_t)k;
+        h = eu_hit((k + len - p[TP_EROT] % len) % len, p[TP_EHITS], len);
+        if (h >= 0 && sc.hn[t][h] != REST)
+            deg = sc.hn[t][h];
+        chance = pct(p[TP_ECHANCE]);
+    } else {                                 /* STEP */
+        len = p[TP_SLEN];
+        k = seq_pos[t] % len;
+        seq_cur[t] = (uint8_t)k;
+        switch (p[TP_SDIR]) {
+        case 0: seq_pos[t] = (uint8_t)((k + 1u) % len); break;
+        case 1: seq_cur[t] = (uint8_t)(len - 1u - k); seq_pos[t] = (uint8_t)((k + 1u) % len); break;
+        case 2:
+            if (len > 1u && ((int32_t)k + seq_dir[t] < 0 || k + (uint32_t)seq_dir[t] >= len))
+                seq_dir[t] = (int8_t)-seq_dir[t];
+            seq_pos[t] = (uint8_t)(len > 1u ? (int32_t)k + seq_dir[t] : 0);
+            break;
+        default: seq_cur[t] = (uint8_t)(am_rnd() % len); seq_pos[t] = seq_cur[t]; break;
+        }
+        k = seq_cur[t];
+        if (sc.son[t] >> k & 1u) {
+            deg = sc.sn[t][k];
+            if (am_rndf() < pct(p[TP_SMUT]) * 0.5f)        /* MUTATE: now and then another note of the scale */
+                deg = (int32_t)(am_rnd() % 8u);
+        }
+        chance = pct(p[TP_SCHANCE]);
+    }
+    if (deg < 0 || !playing || am_rndf() >= chance * (0.6f + 0.8f * pct(sc.gp[GP_ACT])))
+        return;
+    {
+        float gate = tick_s * (float)rt * (0.05f + 3.95f * pct(p[TP_GATE]) * pct(p[TP_GATE]));
+        float vel = 1.0f - pct(p[TP_ACCENT]) * am_rndf() * 0.7f;
+        voice_start(t, degree_note(deg, oct), vel, (int32_t)(gate * SR));
+    }
+}
+
 static void gen_step(uint32_t t, float tick_s)
 {
     uint8_t *p = sc.tp[t];
@@ -571,6 +670,10 @@ static void gen_step(uint32_t t, float tick_s)
     float dens = pct(p[TP_DENS]) * (0.3f + 1.4f * pct(sc.gp[GP_ACT]));
     if (clk_tick % rt)
         return;
+    if (p[TP_SMODE]) {
+        pat_step(t, tick_s, rt, oct);
+        return;
+    }
     if (m->pos >= steps)
         m->pos = 0;
     span = 1 + (int32_t)(pct(p[TP_RANGE]) * (float)(len * 2u));
@@ -1070,6 +1173,9 @@ static struct {
     uint8_t latched[NKEYS];
     uint8_t prev_page, mix_mode;         /* the page MIX came from; MIX's black keys: 0 mute, 1 solo */
     uint32_t mix_at;                     /* when the MIX key went down (held long: MIX only while held) */
+    uint8_t note_edit, cursor;           /* SEQ 3: the white keys write notes, into this hit / step */
+    int8_t hold_step;                    /* SEQ 3, STEP: the white key held (K1 sets its note), -1 none */
+    uint8_t hold_turned;
     int32_t knote[NKEYS];                /* the note each key started (so a key's note off finds it) */
     uint8_t redraw;
 } ui;
@@ -1118,6 +1224,29 @@ void app_say(const char *a, const char *b)
         }
         ann_say(t, 0, ANN_NOW);
     }
+}
+
+/* a page's value k: SEQ 2 and 3 show the track's mode's values */
+static uint32_t page_ref(uint32_t pg, uint32_t sub, uint32_t k)
+{
+    if (pg == PG_SEQ && sub > 0u)
+        return MODE_REF[sc.tp[cur_trk][TP_SMODE]][k];
+    return PG_REF[pg][sub][k];
+}
+static const char *page_title(uint32_t pg, uint32_t sub)
+{
+    static const char *const PT[3] = {"GENERATOR MOTIF", "EUCLID HITS", "STEP PATTERN"};
+    if (pg == PG_SEQ && sub == 1u)
+        return SEQ_MODE[sc.tp[cur_trk][TP_SMODE]];
+    if (pg == PG_SEQ && sub == 2u)
+        return ui.note_edit ? "NOTE ENTRY" : PT[sc.tp[cur_trk][TP_SMODE]];
+    return PG_TITLE[pg][sub];
+}
+static const char *page_short(uint32_t pg, uint32_t sub)
+{
+    if (pg == PG_SEQ && sub == 1u)
+        return SEQ_MODE_S[sc.tp[cur_trk][TP_SMODE]];
+    return PG_SHORT[pg][sub];
 }
 
 /* a value's name and text */
@@ -1181,7 +1310,7 @@ static void page_open(uint32_t pg, int sub)
         char n[4] = {' ', (char)('1' + sub), 0, 0};
         text_cat(t, n);
     }
-    app_say(t, PG_TITLE[pg][sub]);
+    app_say(t, page_title(pg, (uint32_t)sub));
 }
 
 static void track_pick(uint32_t t)
@@ -1206,7 +1335,8 @@ static int32_t scale_key_note(uint32_t wi)
  * tracks on the two groups of three, scenes down/up, PLAY, LATCH. MIX: the tracks on the groups of three, MUTE and
  * SOLO (what a track key does), clear the mutes, clear the solos. */
 enum { S_NONE, S_SUB, S_TRK, S_TPREV, S_TNEXT, S_INST, S_ENV, S_LFO, S_SEQ, S_ARP, S_SEND, S_SCENE, S_SAVE,
-       S_PLAY, S_LATCH, S_SPREV, S_SNEXT, S_MMODE, S_MTRK, S_MCLR, S_SCLR, S_MIX };
+       S_PLAY, S_LATCH, S_SPREV, S_SNEXT, S_MMODE, S_MTRK, S_MCLR, S_SCLR, S_MIX,
+       S_SMODE, S_NOTES, S_RAND, S_REST, S_CURP, S_CURN };
 static const int8_t BK_TRK[11] = {0, 1, 2, -1, -1, 3, 4, 5, -1, -1, -1};
 static const char *const TRK_LBL[NTRK] = {"T1", "T2", "T3", "T4", "T5", "T6"};
 static const char *const INST_SHORT[NINST] = {"DRONE", "PAD", "BELL", "PLUCK", "TEXT"};
@@ -1215,7 +1345,7 @@ static const char *const ENV_LBL[5] = {"PERC", "PLUCK", "SWELL", "PAD", "HOLD"};
 static const uint8_t ENV_SET[5][4] = {{0, 40, 0, 45}, {0, 62, 0, 62}, {82, 60, 90, 86}, {62, 60, 80, 76}, {12, 60, 100, 52}};
 static const char *const LFO_LBL[5] = {"SINE", "TRI", "SAW", "RAND", "DRIFT"};
 static const uint8_t LFO_SET[5] = {0, 1, 2, 4, 5};
-static const char *const SEQ_LBL[5] = {"NEW", "LOCK", "FREE", "SPARS", "BUSY"};
+static const char *const SEQ_LBL[2] = {"NEW", "LOCK"};
 static const char *const ARP_LBL[5] = {"OFF", "UP", "DOWN", "UPDN", "RAND"};
 static const char *const SEND_LBL[5] = {"DRY", "DLY", "VERB", "BOTH", "WASH"};
 static const uint8_t SEND_SET[5][2] = {{0, 0}, {60, 10}, {10, 70}, {50, 60}, {80, 100}};
@@ -1264,9 +1394,13 @@ static uint32_t slot(uint32_t bi, uint32_t *arg, const char **lbl, uint32_t *lit
         if (bi >= PG_N[pg])
             return S_NONE;
         *arg = bi;
-        *lbl = PG_SHORT[pg][bi];
+        *lbl = page_short(pg, bi);
         *lit = bi == sub;
         return S_SUB;
+    }
+    if (bi < 5u && pg == PG_SEQ && ui.note_edit) {   /* entering notes: the cursor instead of the track */
+        *lbl = bi == 3u ? "<CUR" : "CUR>";
+        return bi == 3u ? S_CURP : S_CURN;
     }
     if (bi < 5u) {
         *lbl = bi == 3u ? "TRK-" : "TRK+";
@@ -1281,10 +1415,25 @@ static uint32_t slot(uint32_t bi, uint32_t *arg, const char **lbl, uint32_t *lit
                p[TP_REL] == ENV_SET[c][3];
         return S_ENV;
     case PG_LFO: *lbl = LFO_LBL[c]; *lit = p[TP_L1SHP + 4 * sub] == LFO_SET[c]; return S_LFO;
-    case PG_SEQ:
-        *lbl = SEQ_LBL[c];
-        *lit = (c == 1u && p[TP_DEJAVU] == 100) || (c == 2u && p[TP_DEJAVU] == 0);
-        return S_SEQ;
+    case PG_SEQ:                             /* the mode; then NEW, LOCK (GEN) or NOTES, RAND / REST */
+        if (c < 3u) {
+            *lbl = SEQ_MODE_S[c];
+            *lit = p[TP_SMODE] == c;
+            return S_SMODE;
+        }
+        if (p[TP_SMODE] == 0u) {
+            *arg = c - 3u;
+            *lbl = SEQ_LBL[c - 3u];
+            *lit = c == 4u && p[TP_DEJAVU] == 100;
+            return S_SEQ;
+        }
+        if (c == 3u) {
+            *lbl = "NOTES";
+            *lit = ui.note_edit;
+            return S_NOTES;
+        }
+        *lbl = ui.note_edit ? "REST" : "RAND";
+        return ui.note_edit ? S_REST : S_RAND;
     case PG_ARP: *lbl = ARP_LBL[c]; *lit = c == 0u ? !p[TP_ARPON] : p[TP_ARPON] && p[TP_ARPPAT] == c - 1u; return S_ARP;
     case PG_FX:
         *lbl = SEND_LBL[c];
@@ -1350,6 +1499,27 @@ static void mix_close(void)
     ui.redraw = 1;
 }
 
+/* SEQ 3: how many hits (EUCLID) or steps (STEP) the cursor moves over */
+static uint32_t seq_count(uint32_t t)
+{
+    const uint8_t *p = sc.tp[t];
+    uint32_t h = p[TP_EHITS] < p[TP_ELEN] ? p[TP_EHITS] : p[TP_ELEN];
+    return p[TP_SMODE] == 1u ? (h ? h : 1u) : p[TP_SLEN];
+}
+
+/* SEQ 3 entering notes: white key wi writes its degree at the cursor, which moves on */
+static void note_enter(uint32_t wi)
+{
+    if (sc.tp[cur_trk][TP_SMODE] == 1u) {
+        sc.hn[cur_trk][ui.cursor] = (uint8_t)wi;
+    } else {
+        sc.sn[cur_trk][ui.cursor] = (uint8_t)wi;
+        sc.son[cur_trk] |= (uint16_t)(1u << ui.cursor);
+    }
+    sc_dirty = 1;
+    ui.cursor = (uint8_t)((ui.cursor + 1u) % seq_count(cur_trk));
+}
+
 /* a black key pressed (down) or let go (up) in scale mode */
 static void black_key(uint32_t bi, int down)
 {
@@ -1396,17 +1566,57 @@ static void black_key(uint32_t bi, int down)
         app_say(ui.sub[PG_LFO] ? "LFO2 SHAPE" : "LFO1 SHAPE", LFO_SHAPE[LFO_SET[arg]]);
         break;
     case S_SEQ:
-        if (arg == 0u)
+        if (arg == 0u) {
             mo[cur_trk].have = 0;            /* a new motif: written afresh on the next pass */
-        else if (arg == 1u)
-            p[TP_DEJAVU] = 100;
-        else if (arg == 2u)
-            p[TP_DEJAVU] = 0;
-        else
-            p[TP_DENS] = arg == 3u ? 20 : 80;
-        if (arg)
+            app_say("MOTIF", "NEW");
+        } else {
+            p[TP_DEJAVU] = p[TP_DEJAVU] == 100 ? 60 : 100;
             sc_dirty = 1;
-        app_say("MOTIF", SEQ_LBL[arg]);
+            app_say("MOTIF", p[TP_DEJAVU] == 100 ? "LOCKED" : "FREE");
+        }
+        break;
+    case S_SMODE:
+        if (p[TP_SMODE] != arg) {
+            p[TP_SMODE] = (uint8_t)arg;
+            seq_pos[cur_trk] = 0;
+            sc_dirty = 1;
+        }
+        if (!arg)
+            ui.note_edit = 0;
+        app_say("SEQ MODE", SEQ_MODE[arg]);
+        break;
+    case S_NOTES:
+        ui.note_edit = !ui.note_edit;
+        ui.cursor = 0;
+        if (ui.note_edit && !(ui.page == PG_SEQ && ui.sub[PG_SEQ] == 2u))
+            page_open(PG_SEQ, 2);
+        app_say("NOTE ENTRY", ui.note_edit ? "WHITE KEYS" : "OFF");
+        break;
+    case S_CURP:
+    case S_CURN: {
+        uint32_t cnt = seq_count(cur_trk);
+        ui.cursor = (uint8_t)((ui.cursor + (a == S_CURN ? 1u : cnt - 1u)) % cnt);
+        break;
+    }
+    case S_REST:
+        if (p[TP_SMODE] == 1u)
+            sc.hn[cur_trk][ui.cursor] = REST;
+        else
+            sc.son[cur_trk] &= (uint16_t)~(1u << ui.cursor);
+        sc_dirty = 1;
+        ui.cursor = (uint8_t)((ui.cursor + 1u) % seq_count(cur_trk));
+        app_say("REST", "");
+        break;
+    case S_RAND:
+        for (i = 0; i < 16u; i++) {          /* notes from the scale's lower octave and a bit, now and then a rest */
+            uint32_t d = am_rnd() % 9u;
+            if (p[TP_SMODE] == 1u)
+                sc.hn[cur_trk][i] = (uint8_t)(i && am_rndf() < 0.15f ? REST : d);
+            else
+                sc.sn[cur_trk][i] = (uint8_t)d;
+        }
+        sc_dirty = 1;
+        app_say("NOTES", "RANDOM");
         break;
     case S_ARP:
         p[TP_ARPON] = arg ? 1u : 0u;
@@ -1472,6 +1682,24 @@ static void input(void)
         if (scale_mode && bi < 11u) {        /* the black keys: the screen's submenus */
             black_key(bi, (pressed & bit) != 0u);
             continue;
+        }
+        if (scale_mode && wi < 16u && ui.page == PG_SEQ && ui.sub[PG_SEQ] == 2u && sc.tp[cur_trk][TP_SMODE]) {
+            if (ui.note_edit) {              /* entering notes: write it, then play it as usual */
+                if (pressed & bit)
+                    note_enter(wi);
+            } else if (sc.tp[cur_trk][TP_SMODE] == 2u) {   /* STEP: the white keys are the 16 steps */
+                if (pressed & bit) {
+                    ui.hold_step = (int8_t)wi;
+                    ui.hold_turned = 0;
+                } else if (ui.hold_step == (int8_t)wi) {
+                    if (!ui.hold_turned)     /* a tap turns the step on or off; held and turned, it only sets the note */
+                        sc.son[cur_trk] ^= (uint16_t)(1u << wi);
+                    sc_dirty = 1;
+                    ui.hold_step = -1;
+                }
+                ui.redraw = 1;
+                continue;
+            }
         }
         if (pressed & bit) {
             int32_t note = scale_mode ? scale_key_note(wi) + 12 * oct_shift : 53 + (int32_t)k + 12 * oct_shift;
@@ -1540,8 +1768,24 @@ static void input(void)
     if ((e = plat_enc(EN_PRESET)) != 0)
         scene_step(e);
     for (k = 0; k < 4u; k++)
-        if ((e = plat_enc((int)(EN_K1 + k))) != 0)
-            ref_turn(PG_REF[ui.page][ui.sub[ui.page]][k], e);
+        if ((e = plat_enc((int)(EN_K1 + k))) != 0) {
+            if (k == 0u && ui.hold_step >= 0) {   /* a step held: K1 is its note */
+                uint8_t *d = &sc.sn[cur_trk][ui.hold_step];
+                char nm[4] = {0, 0, 0, 0};
+                *d = (uint8_t)clamp((int32_t)*d + e, 0, 15);
+                sc.son[cur_trk] |= (uint16_t)(1u << ui.hold_step);
+                ui.hold_turned = 1;
+                sc_dirty = 1;
+                text_cat(nm, NOTE_NAME[degree_note(*d, 0) % 12]);
+                app_say("STEP NOTE", nm);
+                continue;
+            }
+            ref_turn(page_ref(ui.page, ui.sub[ui.page], k), e);
+        }
+    if (!(ui.page == PG_SEQ && ui.sub[PG_SEQ] == 2u && sc.tp[cur_trk][TP_SMODE])) {
+        ui.note_edit = 0;
+        ui.hold_step = -1;
+    }
     if (keys != ui.keys || btn != ui.btn)
         ui.redraw = 1;
     ui.keys = keys;
@@ -1572,9 +1816,18 @@ static void input(void)
                 else
                     dk |= 1u << BK[k];
             }
-            for (k = 0; k < 16u; k++)
-                if (k % len == 0u)
-                    dk |= 1u << WK[k];          /* the roots glow */
+            if (ui.page == PG_SEQ && ui.sub[PG_SEQ] == 2u && sc.tp[cur_trk][TP_SMODE] == 2u && !ui.note_edit) {
+                uint32_t on = sc.son[cur_trk];   /* the steps: lit when on, the step playing blinks the other way */
+                for (k = 0; k < sc.tp[cur_trk][TP_SLEN]; k++)
+                    if (((on >> k) & 1u) != (k == seq_cur[cur_trk] && playing))
+                        lk |= 1u << WK[k];
+                    else
+                        dk |= 1u << WK[k];
+            } else {
+                for (k = 0; k < 16u; k++)
+                    if (k % len == 0u)
+                        dk |= 1u << WK[k];      /* the roots glow */
+            }
         }
         plat_lights(lb, lk, 0x3FFFu & ~lb, dk, 1);
     }
@@ -1608,7 +1861,7 @@ static void draw(void)
             text_cat(t, s);
         }
         cv_text(232 - text_w(&FONT_B, t), 2, &FONT_B, t, C_HI);
-        cv_text(10, 20, &FONT_XS, PG_TITLE[pg][sub], C_GRAY);
+        cv_text(10, 20, &FONT_XS, page_title(pg, sub), C_GRAY);
         t[0] = 0;
         text_cat(t, SCENE_NAME[am_store.cur]);
         if (sc_dirty)
@@ -1656,6 +1909,55 @@ static void draw(void)
             cv_rect(x, 136, 54, 3, C_DIM);
             cv_rect(x, 136, (int32_t)(ref_frac(ref) * 54u / 200u), 3, TCOL[cur_trk]);
         }
+    } else if (pg == PG_SEQ && sub == 2u) {  /* the pattern: 16 cells, each note's name and height, the values */
+        const uint8_t *p = sc.tp[cur_trk];
+        uint32_t mode = p[TP_SMODE], len = mode == 1u ? p[TP_ELEN] : mode == 2u ? p[TP_SLEN] : p[TP_STEPS];
+        int32_t oct = INST_OCT[p[TP_INST]] + (int32_t)p[TP_OCT] - 3;
+        uint32_t cur = mode ? seq_cur[cur_trk] : (mo[cur_trk].pos + len - 1u) % len;
+        for (k = 0; k < 16u; k++) {
+            int32_t x = 8 + (int32_t)k * 14, deg = -1, h = -1, act = 0, hh;
+            uint16_t c;
+            if (k >= len) {
+                cv_rect(x + 4, 14, 4, 4, C_LINE);
+                continue;
+            }
+            if (mode == 1u) {
+                h = eu_hit((k + len - p[TP_EROT] % len) % len, p[TP_EHITS], len);
+                if (h >= 0) {
+                    deg = sc.hn[cur_trk][h] == REST ? -2 : sc.hn[cur_trk][h];
+                    act = deg >= 0;
+                }
+            } else if (mode == 2u) {
+                deg = sc.sn[cur_trk][k];
+                act = (int32_t)(sc.son[cur_trk] >> k & 1u);
+            } else if (mo[cur_trk].have || k < mo[cur_trk].pos) {
+                deg = mo[cur_trk].deg[k] == -100 ? -1 : mo[cur_trk].deg[k];
+                act = deg >= 0;
+            }
+            c = act ? TCOL[cur_trk] : (mode == 1u && h >= 0) ? C_DIM : C_LINE;
+            cv_rect(x, 6, 12, 20, c);
+            if (k == cur && playing)                       /* the step playing */
+                cv_rect(x, 0, 12, 4, C_WHITE);
+            if (ui.note_edit && ((mode == 1u && h == (int32_t)ui.cursor) || (mode == 2u && k == ui.cursor)))
+                cv_rect(x - 1, 28, 14, 3, C_WHITE);          /* where the next note goes */
+            if (deg >= 0 || deg == -2) {
+                const char *nm = deg == -2 ? "-" : NOTE_NAME[(uint32_t)degree_note(deg, oct) % 12u];
+                cv_text(x + 6 - text_w(&FONT_T, nm) / 2, 33, &FONT_T, nm, act ? C_WHITE : C_DIM);
+            }
+            if (deg >= 0) {
+                hh = (deg + 1) * 3;
+                cv_rect(x + 3, 94 - hh, 6, hh, act ? TCOL[cur_trk] : C_LINE);
+            }
+        }
+        for (k = 0; k < 4u; k++) {
+            uint32_t ref = page_ref(PG_SEQ, 2, k);
+            int32_t x = 4 + (int32_t)k * 59;
+            cv_text(x, 102, &FONT_T, ref_name(ref), C_GRAY);
+            ref_text(ref, t);
+            cv_text(x, 116, &FONT_S, t, C_HI);
+            cv_rect(x, 136, 54, 3, C_DIM);
+            cv_rect(x, 136, (int32_t)(ref_frac(ref) * 54u / 200u), 3, TCOL[cur_trk]);
+        }
     } else if (pg == PG_HOME) {
         for (k = 0; k < NTRK; k++) {
             int32_t y = (int32_t)k * 16;
@@ -1687,7 +1989,7 @@ static void draw(void)
         }
     } else {
         for (k = 0; k < 4u; k++) {
-            uint32_t ref = PG_REF[pg][sub][k];
+            uint32_t ref = page_ref(pg, sub, k);
             int32_t y = (int32_t)k * 36;
             cv_text(10, y + 2, &FONT_XS, "K", C_DIM);
             int_text((int32_t)k + 1, t);
@@ -1766,6 +2068,7 @@ void app_ui_init(void)
 {
     lcd_fill(0, 0, 240, 240, C_BLACK);
     ui.page = PG_HOME;
+    ui.hold_step = -1;
     ui.redraw = 1;
 }
 
@@ -1816,6 +2119,16 @@ int app_expect(const char *what, int *got)
         *got = (int)n;
     } else if (!strcmp(what, "mix_mode"))
         *got = ui.mix_mode;
+    else if (!strcmp(what, "smode"))
+        *got = sc.tp[cur_trk][TP_SMODE];
+    else if (!strcmp(what, "note_edit"))
+        *got = ui.note_edit;
+    else if (!strcmp(what, "cursor"))
+        *got = ui.cursor;
+    else if (!strcmp(what, "hn0") || !strcmp(what, "hn1") || !strcmp(what, "sn0") || !strcmp(what, "sn1"))
+        *got = (what[0] == 'h' ? sc.hn : sc.sn)[cur_trk][what[2] - '0'];
+    else if (!strcmp(what, "son"))
+        *got = sc.son[cur_trk];
     else if (!strcmp(what, "dejavu"))
         *got = sc.tp[cur_trk][TP_DEJAVU];
     else if (!strcmp(what, "arp"))

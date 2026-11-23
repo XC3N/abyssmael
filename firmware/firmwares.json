@@ -3,10 +3,10 @@
     {
       "id": "ambient",
       "name": "AMBIENT",
-      "version": "0.2 (dev build)",
+      "version": "0.3 (dev build)",
       "product": "FM-1_5800",
       "file": "ambient/ambient.fwsc",
-      "sha256": "1afb5afb6804be9ea2fee47ac25da95dc2405127ec76a35f6c830c07bcc266f9",
+      "sha256": "4c53415bdbd459ec7362d5b47ada196feb706d70031e52d1eae804f31e4cfee7",
       "description": "A six-track generative ambient firmware. Each track has its own instrument (DRONE, PAD, BELL, PLUCK, TEXTURE), envelope, filter, two LFOs, a generator and an arpeggio. A global delay, a shimmer reverb and an AGE layer (tape hiss, vinyl crackle, wow and flutter). Four scenes: DEEP, GLASS, TIDE, VOID. Plays from power-on.",
       "controls": [
         [
@@ -31,7 +31,7 @@
         ],
         [
           "EDIT / ENV / LFO / SEQ",
-          "The track's sound, envelope and filter, LFOs, generator (press again for page 2)"
+          "The track's sound, envelope and filter, LFOs; SEQ has three sequencer modes per track: GEN (generator), EUCL (Euclidean, a note per hit) and STEP (16 steps on the white keys)"
         ],
         [
           "ARP",
