@@ -299,7 +299,7 @@ static void draw(void)
     text_cat(t, " ");
     text_cat(t, SCALE_NAME[sc.gp[GP_SCALE]]);
     cv_text(232 - text_w(&FONT_XS, t), 2, &FONT_XS, t, C_HI);
-    cv_text(8, 18, &FONT_XS, "KEYS PLAY CHROMATIC: SEL FOR SCALE MODE", C_DIM);
+    cv_text(8, 18, &FONT_XS, "KEYS ARE CHROMATIC. SEL: SCALE", C_DIM);
     cv_blit(0, 206);
 }
 

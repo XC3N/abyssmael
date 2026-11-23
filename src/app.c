@@ -39,6 +39,7 @@ void app_ui_init(void)
     lcd_fill(0, 0, 240, 240, C_BLACK);
     ui.page = PG_HOME;
     ui.hold_step = -1;
+    ui.oct = 3;
     ui.redraw = 1;
 }
 

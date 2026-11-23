@@ -132,17 +132,17 @@ static const pdesc_t GPD[NGP] = {
 
 /* the pages: button, its pages, four values each (a track value, or G(...) for a global one) */
 #define G(x) (0x80u | (x))
-enum { PG_HOME, PG_EDIT, PG_ENV, PG_LFO, PG_SEQ, PG_ARP, PG_FX, PG_GLO, PG_MIX, NPG };
-static const char *const PG_NAME[NPG] = {"HOME", "EDIT", "ENV", "LFO", "SEQ", "ARP", "FX", "GLO", "MIX"};
-static const uint8_t PG_BTN[NPG] = {B_HOME, B_EDIT, B_ENV, B_LFO, B_SEQ, B_ARP, B_FX, B_GLO, 0xFFu};   /* MIX: a black key */
-static const uint8_t PG_N[NPG] = {1, 2, 2, 2, 3, 2, 3, 3, 1};
+enum { PG_HOME, PG_EDIT, PG_ENV, PG_LFO, PG_SEQ, PG_ARP, PG_FX, PG_GLO, PG_MIX, PG_SCALE, NPG };
+static const char *const PG_NAME[NPG] = {"HOME", "EDIT", "ENV", "LFO", "SEQ", "ARP", "FX", "GLO", "MIX", "SCALE"};
+static const uint8_t PG_BTN[NPG] = {B_HOME, B_EDIT, B_ENV, B_LFO, B_SEQ, B_ARP, B_FX, B_GLO, 0xFFu, B_SEL};   /* MIX: a black key */
+static const uint8_t PG_N[NPG] = {1, 2, 2, 2, 3, 2, 3, 3, 1, 1};
 static const char *const PG_TITLE[NPG][3] = {
     {"HOME"}, {"SOUND A", "SOUND B"}, {"AMP ENVELOPE", "FILTER"}, {"LFO 1", "LFO 2"}, {"SEQUENCER", "", "PATTERN"},
-    {"ARPEGGIO", "ARP SOURCE"}, {"TRACK MIX", "DELAY", "SHIMMER REVERB"}, {"KEY AND TIME", "DRIFT", "AGE"}, {"MUTE AND SOLO"}};
+    {"ARPEGGIO", "ARP SOURCE"}, {"TRACK MIX", "DELAY", "SHIMMER REVERB"}, {"KEY AND TIME", "DRIFT", "AGE"}, {"MUTE AND SOLO"}, {"KEY, SCALE, KEYS"}};
 /* the pages' short names, for the black keys */
 static const char *const PG_SHORT[NPG][3] = {
     {""}, {"SND A", "SND B"}, {"AMP", "FILT"}, {"LFO1", "LFO2"}, {"SEQ", "", "PATT"}, {"ARP", "SRC"}, {"MIX", "DELAY", "VERB"},
-    {"KEY", "DRIFT", "AGE"}, {""}};
+    {"KEY", "DRIFT", "AGE"}, {""}, {"SCALE"}};
 static const uint8_t PG_REF[NPG][3][4] = {
     {{G(GP_DARK), G(GP_ACT), G(GP_SPACE), TP_LEVEL}},
     {{TP_P0, TP_P1, TP_P2, TP_P3}, {TP_P4, TP_P5, TP_P6, TP_P7}},
@@ -155,6 +155,7 @@ static const uint8_t PG_REF[NPG][3][4] = {
     {{G(GP_KEY), G(GP_SCALE), G(GP_TEMPO), G(GP_SWING)}, {G(GP_DRIFT), G(GP_MOVE), G(GP_TUNE), G(GP_THEME)},
      {G(GP_HISS), G(GP_CRACKLE), G(GP_WOW), G(GP_AGE)}},
     {{TP_LEVEL, TP_PAN, TP_DSEND, TP_RSEND}},
+    {{G(GP_KEY), G(GP_SCALE), 0x60, 0x61}},   /* SCALE: 0x60 scale mode on/off, 0x61 the keys' octave (the UI's own) */
 };
 
 #define STORE_MAGIC 0x414D4234u          /* "AMB4" */

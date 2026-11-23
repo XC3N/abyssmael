@@ -15,6 +15,7 @@ static struct {
     uint8_t hold_turned;
     int32_t knote[NKEYS];                /* the note each key started (so a key's note off finds it) */
     uint8_t redraw;
+    uint8_t oct;                         /* the keys' octave shift, 0..6 (3 = none) */
 } ui;
 
 static void text_cat(char *d, const char *s)
@@ -91,8 +92,18 @@ static const char *page_short(uint32_t pg, uint32_t sub)
 }
 
 /* a value's name and text */
-static const pdesc_t *ref_desc(uint32_t ref) { return ref & 0x80u ? &GPD[ref & 0x7Fu] : &TPD[ref]; }
-static uint8_t *ref_ptr(uint32_t ref) { return ref & 0x80u ? &sc.gp[ref & 0x7Fu] : &sc.tp[cur_trk][ref]; }
+/* refs 0x60 and 0x61 are the UI's own values (SCALE page): scale mode on/off and the keys' octave; not in the scene */
+static const pdesc_t PSD[2] = {{"SCALE MODE", 0, 1, K_ENUM, 1, OFF_ON}, {"KEYS OCTAVE", 0, 6, K_OCT, 1, 0}};
+static const pdesc_t *ref_desc(uint32_t ref)
+{
+    return ref >= 0x60u && ref < 0x80u ? &PSD[ref - 0x60u] : ref & 0x80u ? &GPD[ref & 0x7Fu] : &TPD[ref];
+}
+static uint8_t *ref_ptr(uint32_t ref)
+{
+    if (ref >= 0x60u && ref < 0x80u)
+        return ref == 0x60u ? (uint8_t *)&scale_mode : &ui.oct;
+    return ref & 0x80u ? &sc.gp[ref & 0x7Fu] : &sc.tp[cur_trk][ref];
+}
 static const char *ref_name(uint32_t ref)
 {
     const pdesc_t *d = ref_desc(ref);
@@ -129,7 +140,8 @@ static void ref_turn(uint32_t ref, int32_t e)
     if (v == *p)
         return;
     *p = (uint8_t)v;
-    sc_dirty = 1;
+    if (ref < 0x60u || ref >= 0x80u)
+        sc_dirty = 1;
     if (ref == G(GP_THEME))
         palette_set(sc.gp[GP_THEME]);
     ref_text(ref, t);
@@ -507,7 +519,6 @@ static void black_key(uint32_t bi, int down)
 static void input(void)
 {
     static const uint8_t WK[16] = PLAT_WHITE_KEYS, BK[11] = PLAT_BLACK_KEYS;
-    static int8_t oct_shift;
     uint32_t keys = plat_keys(), btn = plat_buttons(), k, pressed = keys & ~ui.keys, released = ui.keys & ~keys;
     int32_t e;
     for (k = 0; k < NKEYS; k++) {
@@ -549,7 +560,7 @@ static void input(void)
             }
         }
         if (pressed & bit) {
-            int32_t note = scale_mode ? scale_key_note(wi) + 12 * oct_shift : 53 + (int32_t)k + 12 * oct_shift;
+            int32_t note = scale_mode ? scale_key_note(wi) + 12 * ((int32_t)ui.oct - 3) : 53 + (int32_t)k + 12 * ((int32_t)ui.oct - 3);
             if (latch && ui.latched[k]) {    /* latched: a second press lets it go */
                 ui.latched[k] = 0;
                 key_event(cur_trk, ui.knote[k], 0, 0);
@@ -580,18 +591,14 @@ static void input(void)
         case B_PLAY:
             play_toggle();
             break;
-        case B_SEL:
-            scale_mode = !scale_mode;
-            app_say("SCALE MODE", scale_mode ? "ON" : "OFF");
-            break;
         case B_REC:
             latch_toggle();
             break;
         case B_OCTDN:
         case B_OCTUP: {
             char t[4];
-            oct_shift = (int8_t)clamp(oct_shift + (k == B_OCTUP ? 1 : -1), -3, 3);
-            int_text(oct_shift, t);
+            ui.oct = (uint8_t)clamp((int32_t)ui.oct + (k == B_OCTUP ? 1 : -1), 0, 6);
+            int_text((int32_t)ui.oct - 3, t);
             app_say("KEYS OCTAVE", t);
             break;
         }
