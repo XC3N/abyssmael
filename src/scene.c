@@ -127,7 +127,7 @@ static int scene_ok(const scene_t *s)
                 return 0;
     for (t = 0; t < NTRK; t++)
         for (i = 0; i < 16u; i++)
-            if ((s->hn[t][i] > 15u && s->hn[t][i] != REST) || s->sn[t][i] > 15u)
+            if ((s->hn[t][i] > 15u && s->hn[t][i] != REST) || s->sn[t][i] > 15u || s->cd[t][i] >= NCOND)
                 return 0;
     return 1;
 }

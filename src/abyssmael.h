@@ -54,6 +54,12 @@ static const char *const SCENE_NAME[4] = {"DEEP", "GLASS", "TIDE", "VOID"};
 static const char *const SEQ_MODE[3] = {"GENERATOR", "EUCLID", "STEP SEQ"};
 static const char *const SEQ_MODE_S[3] = {"GEN", "EUCL", "STEP"};
 static const char *const DIR_NAME[4] = {"FWD", "BACK", "PING", "RAND"};
+/* a hit's (EUCL) or step's (STEP) condition, tested on each pass of the pattern; PRE: this track's last tested hit played;
+ * NEI: the track above it (the last one for track 1) played on this tick; FIRST: the first pass after play starts */
+enum { C_ALWAYS, C_1_2, C_2_2, C_1_3, C_2_3, C_3_3, C_1_4, C_2_4, C_3_4, C_4_4, C_FIRST, C_NFIRST, C_PRE, C_NPRE, C_NEI, C_NNEI, NCOND };
+static const char *const COND_NAME[NCOND] = {"ALWAYS", "1:2", "2:2", "1:3", "2:3", "3:3", "1:4", "2:4", "3:4", "4:4",
+                                             "FIRST", "!FIRST", "PRE", "!PRE", "NEI", "!NEI"};
+static const char *const ARP_SRC[3] = {"KEYS", "SEQ", "BOTH"};
 #define REST 31u                         /* a Euclidean hit's note: none */
 
 /* ------------------------------------------------------------------ scene --- */
@@ -63,7 +69,8 @@ enum {   /* a track's values */
     TP_L1RATE, TP_L1DEP, TP_L1SHP, TP_L1TGT, TP_L2RATE, TP_L2DEP, TP_L2SHP, TP_L2TGT,
     TP_DENS, TP_RATE, TP_GATE, TP_RANGE, TP_STEPS, TP_DEJAVU, TP_OCT, TP_ACCENT,
     TP_SMODE, TP_EHITS, TP_ELEN, TP_EROT, TP_ECHANCE, TP_SLEN, TP_SDIR, TP_SCHANCE, TP_SMUT,
-    TP_ARPON, TP_ARPRATE, TP_ARPPAT, TP_ARPGATE,
+    TP_EDIR, TP_EDRIFT,
+    TP_ARPON, TP_ARPRATE, TP_ARPPAT, TP_ARPGATE, TP_ARPSRC,
     TP_LEVEL, TP_PAN, TP_DSEND, TP_RSEND, TP_MUTE, TP_SOLO, NTP
 };
 enum {   /* the scene's global values */
@@ -78,6 +85,7 @@ typedef struct {
     uint8_t hn[NTRK][16];                /* EUCLID: each hit's note, a scale degree (0-15) or REST */
     uint8_t sn[NTRK][16];                /* STEP: each step's note, a scale degree (0-15) */
     uint16_t son[NTRK];                  /* STEP: the steps that play (bits) */
+    uint8_t cd[NTRK][16];                /* the condition of each EUCLID hit or STEP step (C_...) */
 } scene_t;
 
 enum { K_PCT, K_ENUM, K_OCT, K_NOTE, K_BPM, K_CENT, K_INSTP };
@@ -103,8 +111,10 @@ static const pdesc_t TPD[NTP] = {
     {"ROTATE", 0, 15, K_PCT, 1, 0}, {"CHANCE", 0, 100, K_PCT, 2, 0},
     {"STEPS", 1, 16, K_PCT, 1, 0}, {"DIRECTION", 0, 3, K_ENUM, 1, DIR_NAME}, {"CHANCE", 0, 100, K_PCT, 2, 0},
     {"MUTATE", 0, 100, K_PCT, 2, 0},
+    {"DIRECTION", 0, 3, K_ENUM, 1, DIR_NAME}, {"DRIFT", 0, 100, K_PCT, 2, 0},
     {"ARP", 0, 1, K_ENUM, 1, OFF_ON}, {"ARP RATE", 0, 3, K_ENUM, 1, ARP_RATE},
     {"PATTERN", 0, 3, K_ENUM, 1, ARP_PAT}, {"ARP GATE", 0, 100, K_PCT, 2, 0},
+    {"ARP FROM", 0, 2, K_ENUM, 1, ARP_SRC},
     {"LEVEL", 0, 100, K_PCT, 2, 0}, {"PAN", 0, 100, K_PCT, 2, 0}, {"DELAY SEND", 0, 100, K_PCT, 2, 0},
     {"REVERB SEND", 0, 100, K_PCT, 2, 0}, {"MUTE", 0, 1, K_ENUM, 1, OFF_ON}, {"SOLO", 0, 1, K_ENUM, 1, OFF_ON},
 };
@@ -147,7 +157,7 @@ static const uint8_t PG_REF[NPG][3][4] = {
     {{TP_LEVEL, TP_PAN, TP_DSEND, TP_RSEND}},
 };
 
-#define STORE_MAGIC 0x414D4233u          /* "AMB3" */
+#define STORE_MAGIC 0x414D4234u          /* "AMB4" */
 
 /* SEQ pages 2 and 3: the track's mode's four values */
 static const uint8_t MODE_REF[3][4] = {{TP_DENS, TP_RANGE, TP_STEPS, TP_DEJAVU},
@@ -181,6 +191,7 @@ extern volatile uint8_t trk_active[NTRK];
 extern voice_t vc[NVOICE];
 extern motif_t mo[NTRK];
 extern uint8_t seq_pos[NTRK], seq_cur[NTRK];
+extern uint8_t eu_hits_now[NTRK], eu_rot_now[NTRK];   /* EUCLID: the hits and rotation in play (HITS and ROTATE plus DRIFT) */
 
 /* random numbers: each unit its own */
 static uint32_t am_seed = 0x9E3779B9u;
