@@ -1,10 +1,12 @@
 /* SPDX-License-Identifier: MPL-2.0 */
-/* AMBIENT 0.1: six tracks of generative ambient on fm1-base.
+/* AMBIENT 0.2: six tracks of generative ambient on fm1-base.
  *
  *   SELECT  the track (1-6)        ALGO  its instrument        PRESET  the scene (1-4)
  *   HOME EDIT ENV LFO SEQ ARP FX GLO   a page of four values for K1-K4; press again for the next page
  *   PLAY start / stop the generators   REC latch   SEL scale mode   SAVE the scene   OCT- OCT+ the keys' octave
- *   Scale mode: the 16 white keys play the scale; black keys 1-6 pick a track, 7-9 a page, 10 mute, 11 solo.
+ *   Scale mode (on at power-on): the 16 white keys play the scale; the black keys are the screen's submenus, shown
+ *   along the bottom of the screen: the first three the button's pages, the next two the track, the next five
+ *   this screen's choices; the last one MIX, the mute and solo page (tap: open it; hold: only while held).
  *
  * Part of the unity build (device/unity.c, host/plat_host.c), after the platform: gfx.c and announce.c are in scope. */
 #include "fastmath.h"
@@ -105,13 +107,17 @@ static const pdesc_t GPD[NGP] = {
 
 /* the pages: button, its pages, four values each (a track value, or G(...) for a global one) */
 #define G(x) (0x80u | (x))
-enum { PG_HOME, PG_EDIT, PG_ENV, PG_LFO, PG_SEQ, PG_ARP, PG_FX, PG_GLO, NPG };
-static const char *const PG_NAME[NPG] = {"HOME", "EDIT", "ENV", "LFO", "SEQ", "ARP", "FX", "GLO"};
-static const uint8_t PG_BTN[NPG] = {B_HOME, B_EDIT, B_ENV, B_LFO, B_SEQ, B_ARP, B_FX, B_GLO};
-static const uint8_t PG_N[NPG] = {1, 2, 2, 2, 2, 1, 3, 3};
+enum { PG_HOME, PG_EDIT, PG_ENV, PG_LFO, PG_SEQ, PG_ARP, PG_FX, PG_GLO, PG_MIX, NPG };
+static const char *const PG_NAME[NPG] = {"HOME", "EDIT", "ENV", "LFO", "SEQ", "ARP", "FX", "GLO", "MIX"};
+static const uint8_t PG_BTN[NPG] = {B_HOME, B_EDIT, B_ENV, B_LFO, B_SEQ, B_ARP, B_FX, B_GLO, 0xFFu};   /* MIX: a black key */
+static const uint8_t PG_N[NPG] = {1, 2, 2, 2, 2, 1, 3, 3, 1};
 static const char *const PG_TITLE[NPG][3] = {
     {"HOME"}, {"SOUND A", "SOUND B"}, {"AMP ENVELOPE", "FILTER"}, {"LFO 1", "LFO 2"}, {"GENERATOR", "MOTIF"},
-    {"ARPEGGIO"}, {"TRACK MIX", "DELAY", "SHIMMER REVERB"}, {"KEY AND TIME", "DRIFT", "AGE"}};
+    {"ARPEGGIO"}, {"TRACK MIX", "DELAY", "SHIMMER REVERB"}, {"KEY AND TIME", "DRIFT", "AGE"}, {"MUTE AND SOLO"}};
+/* the pages' short names, for the black keys */
+static const char *const PG_SHORT[NPG][3] = {
+    {""}, {"SND A", "SND B"}, {"AMP", "FILT"}, {"LFO1", "LFO2"}, {"GEN", "MOTIF"}, {"ARP"}, {"MIX", "DELAY", "VERB"},
+    {"KEY", "DRIFT", "AGE"}, {""}};
 static const uint8_t PG_REF[NPG][3][4] = {
     {{G(GP_DARK), G(GP_ACT), G(GP_SPACE), TP_LEVEL}},
     {{TP_P0, TP_P1, TP_P2, TP_P3}, {TP_P4, TP_P5, TP_P6, TP_P7}},
@@ -123,6 +129,7 @@ static const uint8_t PG_REF[NPG][3][4] = {
      {G(GP_RSIZE), G(GP_RDAMP), G(GP_RSHIM), G(GP_RMIX)}},
     {{G(GP_KEY), G(GP_SCALE), G(GP_TEMPO), G(GP_SWING)}, {G(GP_DRIFT), G(GP_MOVE), G(GP_TUNE), G(GP_THEME)},
      {G(GP_HISS), G(GP_CRACKLE), G(GP_WOW), G(GP_AGE)}},
+    {{TP_LEVEL, TP_PAN, TP_DSEND, TP_RSEND}},
 };
 
 #define STORE_MAGIC 0x414D4232u          /* "AMB2" */
@@ -241,7 +248,7 @@ static int scene_ok(const scene_t *s)
 }
 
 /* ------------------------------------------------------------------ shared --- */
-static volatile uint8_t playing = 1, scale_mode, latch;
+static volatile uint8_t playing = 1, scale_mode = 1, latch;
 static volatile uint8_t cur_trk;
 static volatile uint32_t notes_played, drift_count;
 static volatile uint8_t trk_active[NTRK];   /* voices sounding per track (the screen) */
@@ -299,7 +306,7 @@ typedef struct {
     float att, dec_k, sus, rel_k;
     float g, a1, a2, a3, k;              /* the filter at the track's base cutoff (the envelope moves it per voice) */
     float cut_oct, fenv, keyt, res;
-    float lvl, pan, dsend, rsend;
+    float lvl, lvl0, dlvl, pan, dsend, rsend;   /* lvl0 + dlvl * i: the level ramped over the block (no clicks) */
     float pitch_mod, cut_mod, lvl_mod, pan_mod, pa_mod, pb_mod;
     float lfo_ph[2], lfo_val[2], lfo_rnd[2], lfo_tgt[2];
     float p[8];
@@ -351,6 +358,8 @@ static void voice_start(uint32_t t, int32_t note, float vel, int32_t gate)
     v->age = ++voice_age;
     if (inst == I_BELL || inst == I_PLUCK)
         v->pan = am_rnds() * pct(sc.tp[t][TP_P6]) * 0.8f;
+    else if (inst == I_PAD)                           /* WIDTH */
+        v->pan = am_rnds() * pct(sc.tp[t][TP_P7]) * 0.9f;
     if (inst == I_PLUCK) {                            /* fill the string with noise, coloured by BRIGHT */
         float hz = v->inc * SR, b = 0.05f + 0.95f * pct(sc.tp[t][TP_P1]), lp = 0.0f;
         uint32_t len, j, pos;
@@ -476,7 +485,8 @@ static inline float voice_osc(voice_t *v, const tblk_t *b, float inc)
             v->ph[1] = am_rndf();
         }
         v->x3 += (v->ph[1] - v->x3) * 0.0002f;
-        hz = 80.0f * fm_exp2f(p[0] * 7.0f);
+        v->ph[2] = fm_clampf(v->ph[2] + n * 0.0006f, -1.0f, 1.0f);   /* MOVE: the band's slow random walk */
+        hz = 80.0f * fm_exp2f(p[0] * 7.0f + p[6] * 2.0f * v->ph[2]);
         hz += (inc * SR - hz) * p[5];
         f = fm_clampf(6.2831853f * hz / SR, 0.0005f, 1.2f);
         q = 0.05f + (1.0f - p[1]) * 0.9f;
@@ -719,7 +729,9 @@ static void track_block(uint32_t t, uint32_t n)
     b->keyt = pct(p[TP_KEYT]);
     b->res = pct(p[TP_RES]);
     b->k = 2.0f - 1.9f * b->res;
+    b->lvl0 = b->lvl;
     b->lvl = pct(p[TP_LEVEL]) * fm_clampf(1.0f + b->lvl_mod, 0.0f, 1.5f) * (track_audible(t) ? 1.0f : 0.0f);
+    b->dlvl = (b->lvl - b->lvl0) / (float)n;
     b->pan = fm_clampf(pct(p[TP_PAN]) * 2.0f - 1.0f + b->pan_mod, -1.0f, 1.0f);
     b->dsend = pct(p[TP_DSEND]) * pct(sc.gp[GP_SPACE]) * 1.6f;
     b->rsend = pct(p[TP_RSEND]) * pct(sc.gp[GP_SPACE]) * 1.6f;
@@ -814,7 +826,10 @@ void app_render(int32_t *lr, uint32_t n, uint32_t master_q12)
                                      + (v->inst == I_PAD ? b->p[5] * 0.15f * fm_sin_turns(v->x2) : 0.0f)
                                      + (v->inst == I_PLUCK ? v->drift : 0.0f)) * (1.0f / 12.0f));
         if (v->inst == I_DRONE || v->inst == I_PLUCK)  /* drift: a slow random walk in pitch */
-            v->drift = fm_clampf(v->drift + am_rnds() * b->p[6] * 0.02f, -0.3f * b->p[6], 0.3f * b->p[6]);
+        {
+            float dr = v->inst == I_PLUCK ? b->p[7] : b->p[6];   /* DRIFT: the drone's 7th value, the pluck's 8th */
+            v->drift = fm_clampf(v->drift + am_rnds() * dr * 0.02f, -0.3f * dr, 0.3f * dr);
+        }
         if (v->inst == I_BELL && v->stage == 1u) {     /* the bell's index decay, set at its start */
             v->x1 = fm_expf(-6.9f / ((0.05f + 3.0f * (1.0f - b->p[2])) * SR));
             v->x2 = 1.0f;
@@ -862,7 +877,7 @@ void app_render(int32_t *lr, uint32_t n, uint32_t master_q12)
             v2 = v->s2 + va2[k] * v->s1 + va3[k] * v3;
             v->s1 = 2.0f * v1 - v->s1;
             v->s2 = 2.0f * v2 - v->s2;
-            o = v2 * e * v->vel * b->lvl;
+            o = v2 * e * v->vel * (b->lvl0 + b->dlvl * (float)i);
             pn = fm_clampf(b->pan + v->pan, -1.0f, 1.0f);
             gl = 0.5f - 0.5f * pn;
             gr = 0.5f + 0.5f * pn;
@@ -1053,6 +1068,8 @@ static struct {
     uint32_t keys, btn;
     uint8_t page, sub[NPG];              /* the page shown, and each button's page */
     uint8_t latched[NKEYS];
+    uint8_t prev_page, mix_mode;         /* the page MIX came from; MIX's black keys: 0 mute, 1 solo */
+    uint32_t mix_at;                     /* when the MIX key went down (held long: MIX only while held) */
     int32_t knote[NKEYS];                /* the note each key started (so a key's note off finds it) */
     uint8_t redraw;
 } ui;
@@ -1183,6 +1200,259 @@ static int32_t scale_key_note(uint32_t wi)
     return degree_note((int32_t)wi, INST_OCT[sc.tp[cur_trk][TP_INST]] + (int32_t)sc.tp[cur_trk][TP_OCT] - 3);
 }
 
+/* ---------------------------------------------------- the black keys (scale mode) ---
+ * 11 black keys, in the FM-1's groups 3 + 2 + 3 + 2 + 1. On every page but HOME and MIX: the first three are the
+ * button's pages, the next two the track down and up, the next five this page's choices, the last MIX. HOME: the
+ * tracks on the two groups of three, scenes down/up, PLAY, LATCH. MIX: the tracks on the groups of three, MUTE and
+ * SOLO (what a track key does), clear the mutes, clear the solos. */
+enum { S_NONE, S_SUB, S_TRK, S_TPREV, S_TNEXT, S_INST, S_ENV, S_LFO, S_SEQ, S_ARP, S_SEND, S_SCENE, S_SAVE,
+       S_PLAY, S_LATCH, S_SPREV, S_SNEXT, S_MMODE, S_MTRK, S_MCLR, S_SCLR, S_MIX };
+static const int8_t BK_TRK[11] = {0, 1, 2, -1, -1, 3, 4, 5, -1, -1, -1};
+static const char *const TRK_LBL[NTRK] = {"T1", "T2", "T3", "T4", "T5", "T6"};
+static const char *const INST_SHORT[NINST] = {"DRONE", "PAD", "BELL", "PLUCK", "TEXT"};
+static const char *const INST_3[NINST] = {"DRN", "PAD", "BEL", "PLK", "TEX"};
+static const char *const ENV_LBL[5] = {"PERC", "PLUCK", "SWELL", "PAD", "HOLD"};
+static const uint8_t ENV_SET[5][4] = {{0, 40, 0, 45}, {0, 62, 0, 62}, {82, 60, 90, 86}, {62, 60, 80, 76}, {12, 60, 100, 52}};
+static const char *const LFO_LBL[5] = {"SINE", "TRI", "SAW", "RAND", "DRIFT"};
+static const uint8_t LFO_SET[5] = {0, 1, 2, 4, 5};
+static const char *const SEQ_LBL[5] = {"NEW", "LOCK", "FREE", "SPARS", "BUSY"};
+static const char *const ARP_LBL[5] = {"OFF", "UP", "DOWN", "UPDN", "RAND"};
+static const char *const SEND_LBL[5] = {"DRY", "DLY", "VERB", "BOTH", "WASH"};
+static const uint8_t SEND_SET[5][2] = {{0, 0}, {60, 10}, {10, 70}, {50, 60}, {80, 100}};
+static const char *const SCN_LBL[5] = {"DEEP", "GLASS", "TIDE", "VOID", "SAVE"};
+
+/* what black key bi does on the page shown: its action (S_*), its argument, its label, lit (1) or not */
+static uint32_t slot(uint32_t bi, uint32_t *arg, const char **lbl, uint32_t *lit)
+{
+    uint32_t pg = ui.page, sub = ui.sub[pg], c = bi - 5u;
+    const uint8_t *p = sc.tp[cur_trk];
+    *arg = 0;
+    *lbl = "";
+    *lit = 0;
+    if (bi == 10u) {
+        *lbl = "MIX";
+        *lit = pg == PG_MIX;
+        return S_MIX;
+    }
+    if (pg == PG_HOME || pg == PG_MIX) {
+        static const char *const HL[4] = {"SCN-", "SCN+", "PLAY", "LATCH"};
+        static const char *const ML[4] = {"MUTE", "SOLO", "CLR M", "CLR S"};
+        static const uint8_t HA[4] = {S_SPREV, S_SNEXT, S_PLAY, S_LATCH}, MA[4] = {S_MMODE, S_MMODE, S_MCLR, S_SCLR};
+        uint32_t j = bi == 3u ? 0u : bi == 4u ? 1u : bi == 8u ? 2u : 3u;
+        if (BK_TRK[bi] >= 0) {
+            uint32_t t = (uint32_t)BK_TRK[bi];
+            *arg = t;
+            *lbl = TRK_LBL[t];
+            if (pg == PG_HOME) {
+                *lit = t == cur_trk;
+                return S_TRK;
+            }
+            *lit = ui.mix_mode ? sc.tp[t][TP_SOLO] : sc.tp[t][TP_MUTE];
+            return S_MTRK;
+        }
+        if (pg == PG_HOME) {
+            *lbl = HL[j];
+            *lit = j == 2u ? playing : j == 3u ? latch : 0u;
+            return HA[j];
+        }
+        *lbl = ML[j];
+        *arg = j;
+        *lit = j < 2u && ui.mix_mode == j;
+        return MA[j];
+    }
+    if (bi < 3u) {
+        if (bi >= PG_N[pg])
+            return S_NONE;
+        *arg = bi;
+        *lbl = PG_SHORT[pg][bi];
+        *lit = bi == sub;
+        return S_SUB;
+    }
+    if (bi < 5u) {
+        *lbl = bi == 3u ? "TRK-" : "TRK+";
+        return bi == 3u ? S_TPREV : S_TNEXT;
+    }
+    *arg = c;
+    switch (pg) {
+    case PG_EDIT: *lbl = INST_SHORT[c]; *lit = p[TP_INST] == c; return S_INST;
+    case PG_ENV:
+        *lbl = ENV_LBL[c];
+        *lit = p[TP_ATK] == ENV_SET[c][0] && p[TP_DEC] == ENV_SET[c][1] && p[TP_SUS] == ENV_SET[c][2] &&
+               p[TP_REL] == ENV_SET[c][3];
+        return S_ENV;
+    case PG_LFO: *lbl = LFO_LBL[c]; *lit = p[TP_L1SHP + 4 * sub] == LFO_SET[c]; return S_LFO;
+    case PG_SEQ:
+        *lbl = SEQ_LBL[c];
+        *lit = (c == 1u && p[TP_DEJAVU] == 100) || (c == 2u && p[TP_DEJAVU] == 0);
+        return S_SEQ;
+    case PG_ARP: *lbl = ARP_LBL[c]; *lit = c == 0u ? !p[TP_ARPON] : p[TP_ARPON] && p[TP_ARPPAT] == c - 1u; return S_ARP;
+    case PG_FX:
+        *lbl = SEND_LBL[c];
+        *lit = p[TP_DSEND] == SEND_SET[c][0] && p[TP_RSEND] == SEND_SET[c][1];
+        return S_SEND;
+    case PG_GLO: *lbl = SCN_LBL[c]; *lit = c < 4u && am_store.cur == c; return c < 4u ? S_SCENE : S_SAVE;
+    default: return S_NONE;
+    }
+}
+
+static void track_pick(uint32_t t);
+static void scene_save(void)
+{
+    am_store.slot[am_store.cur] = sc;
+    am_store.saved |= (uint8_t)(1u << am_store.cur);
+    if (plat_store_save(OBJ_SETTINGS, &am_store, sizeof am_store) == 0) {
+        sc_dirty = 0;
+        app_say("SAVED", SCENE_NAME[am_store.cur]);
+    } else {
+        app_say("SAVE", "FAILED");
+    }
+}
+static void play_toggle(void)
+{
+    uint32_t i;
+    playing = !playing;
+    if (!playing)
+        for (i = 0; i < NVOICE; i++)
+            if (vc[i].gate >= 0 && vc[i].on)
+                vc[i].stage = 4;
+    app_say(playing ? "PLAYING" : "STOPPED", "");
+}
+static void latch_toggle(void)
+{
+    uint32_t i;
+    latch = !latch;
+    if (!latch)
+        for (i = 0; i < NKEYS; i++)
+            if (ui.latched[i]) {
+                ui.latched[i] = 0;
+                key_event(cur_trk, ui.knote[i], 0, 0);
+            }
+    app_say("LATCH", latch ? "ON" : "OFF");
+}
+static void scene_step(int32_t d)
+{
+    int32_t s = clamp((int32_t)am_store.cur + d, 0, 3);
+    if (s != am_store.cur) {
+        scene_use((uint32_t)s);
+        app_say("SCENE", SCENE_NAME[s]);
+    }
+}
+static void mix_open(void)
+{
+    if (ui.page != PG_MIX)
+        ui.prev_page = ui.page;
+    ui.page = PG_MIX;
+    app_say("MIX", ui.mix_mode ? "SOLO" : "MUTE");
+}
+static void mix_close(void)
+{
+    ui.page = ui.prev_page;
+    ui.redraw = 1;
+}
+
+/* a black key pressed (down) or let go (up) in scale mode */
+static void black_key(uint32_t bi, int down)
+{
+    uint32_t arg, lit, t, i;
+    const char *lbl;
+    uint32_t a = slot(bi, &arg, &lbl, &lit);
+    uint8_t *p = sc.tp[cur_trk];
+    char n[4] = {(char)('1' + cur_trk), 0, 0, 0};
+    if (a == S_MIX) {                        /* a tap opens or closes MIX; held past 400 ms, MIX only while held */
+        if (down) {
+            ui.mix_at = plat_ms();
+            if (ui.page == PG_MIX)
+                ui.mix_at = 0, mix_close();
+            else
+                mix_open();
+        } else if (ui.mix_at && plat_ms() - ui.mix_at > 400u && ui.page == PG_MIX) {
+            mix_close();
+        }
+        return;
+    }
+    if (!down)
+        return;
+    switch (a) {
+    case S_SUB: page_open(ui.page, (int)arg); break;
+    case S_TRK: track_pick(arg); break;
+    case S_TPREV: track_pick(cur_trk ? cur_trk - 1u : NTRK - 1u); break;
+    case S_TNEXT: track_pick(cur_trk + 1u < NTRK ? cur_trk + 1u : 0u); break;
+    case S_INST:
+        if (p[TP_INST] != arg) {
+            track_inst(&sc, cur_trk, arg);
+            sc_dirty = 1;
+        }
+        track_pick(cur_trk);
+        break;
+    case S_ENV:
+        for (i = 0; i < 4u; i++)
+            p[TP_ATK + i] = ENV_SET[arg][i];
+        sc_dirty = 1;
+        app_say("ENVELOPE", ENV_LBL[arg]);
+        break;
+    case S_LFO:
+        p[TP_L1SHP + 4 * ui.sub[PG_LFO]] = LFO_SET[arg];
+        sc_dirty = 1;
+        app_say(ui.sub[PG_LFO] ? "LFO2 SHAPE" : "LFO1 SHAPE", LFO_SHAPE[LFO_SET[arg]]);
+        break;
+    case S_SEQ:
+        if (arg == 0u)
+            mo[cur_trk].have = 0;            /* a new motif: written afresh on the next pass */
+        else if (arg == 1u)
+            p[TP_DEJAVU] = 100;
+        else if (arg == 2u)
+            p[TP_DEJAVU] = 0;
+        else
+            p[TP_DENS] = arg == 3u ? 20 : 80;
+        if (arg)
+            sc_dirty = 1;
+        app_say("MOTIF", SEQ_LBL[arg]);
+        break;
+    case S_ARP:
+        p[TP_ARPON] = arg ? 1u : 0u;
+        if (arg)
+            p[TP_ARPPAT] = (uint8_t)(arg - 1u);
+        sc_dirty = 1;
+        app_say("ARP", arg ? ARP_PAT[arg - 1u] : "OFF");
+        break;
+    case S_SEND:
+        p[TP_DSEND] = SEND_SET[arg][0];
+        p[TP_RSEND] = SEND_SET[arg][1];
+        sc_dirty = 1;
+        app_say("SENDS", SEND_LBL[arg]);
+        break;
+    case S_SCENE:
+        if (arg != am_store.cur) {
+            scene_use(arg);
+            app_say("SCENE", SCENE_NAME[arg]);
+        }
+        break;
+    case S_SAVE: scene_save(); break;
+    case S_PLAY: play_toggle(); break;
+    case S_LATCH: latch_toggle(); break;
+    case S_SPREV: scene_step(-1); break;
+    case S_SNEXT: scene_step(1); break;
+    case S_MMODE: ui.mix_mode = (uint8_t)arg; app_say("TRACK KEYS", arg ? "SOLO" : "MUTE"); break;
+    case S_MTRK:
+        t = ui.mix_mode ? TP_SOLO : TP_MUTE;
+        sc.tp[arg][t] ^= 1u;
+        sc_dirty = 1;
+        n[0] = (char)('1' + arg);
+        app_say(TRK_LBL[arg], ui.mix_mode ? (sc.tp[arg][t] ? "SOLO" : "SOLO OFF") : (sc.tp[arg][t] ? "MUTED" : "UNMUTED"));
+        break;
+    case S_MCLR:
+    case S_SCLR:
+        for (i = 0; i < NTRK; i++)
+            sc.tp[i][a == S_MCLR ? TP_MUTE : TP_SOLO] = 0;
+        sc_dirty = 1;
+        app_say(a == S_MCLR ? "MUTES" : "SOLOS", "CLEARED");
+        break;
+    default: break;
+    }
+    (void)n;
+    ui.redraw = 1;
+}
+
 static void input(void)
 {
     static const uint8_t WK[16] = PLAT_WHITE_KEYS, BK[11] = PLAT_BLACK_KEYS;
@@ -1199,22 +1469,8 @@ static void input(void)
         for (j = 0; j < 11u; j++)
             if (BK[j] == k)
                 bi = j;
-        if (scale_mode && bi < 11u) {        /* the black keys: shortcuts */
-            if (!(pressed & bit))
-                continue;
-            if (bi < 6u)
-                track_pick(bi);
-            else if (bi < 9u)
-                page_open(ui.page, (int)(bi - 6u));
-            else if (bi == 9u) {
-                sc.tp[cur_trk][TP_MUTE] ^= 1u;
-                sc_dirty = 1;
-                app_say(sc.tp[cur_trk][TP_MUTE] ? "MUTED" : "UNMUTED", "");
-            } else {
-                sc.tp[cur_trk][TP_SOLO] ^= 1u;
-                sc_dirty = 1;
-                app_say("SOLO", sc.tp[cur_trk][TP_SOLO] ? "ON" : "OFF");
-            }
+        if (scale_mode && bi < 11u) {        /* the black keys: the screen's submenus */
+            black_key(bi, (pressed & bit) != 0u);
             continue;
         }
         if (pressed & bit) {
@@ -1247,27 +1503,14 @@ static void input(void)
         }
         switch (k) {
         case B_PLAY:
-            playing = !playing;
-            if (!playing)
-                for (pg = 0; pg < NVOICE; pg++)
-                    if (vc[pg].gate >= 0 && vc[pg].on)
-                        vc[pg].stage = 4;
-            app_say(playing ? "PLAYING" : "STOPPED", "");
+            play_toggle();
             break;
         case B_SEL:
             scale_mode = !scale_mode;
             app_say("SCALE MODE", scale_mode ? "ON" : "OFF");
             break;
         case B_REC:
-            latch = !latch;
-            if (!latch) {
-                for (pg = 0; pg < NKEYS; pg++)
-                    if (ui.latched[pg]) {
-                        ui.latched[pg] = 0;
-                        key_event(cur_trk, ui.knote[pg], 0, 0);
-                    }
-            }
-            app_say("LATCH", latch ? "ON" : "OFF");
+            latch_toggle();
             break;
         case B_OCTDN:
         case B_OCTUP: {
@@ -1278,14 +1521,7 @@ static void input(void)
             break;
         }
         case B_SAVE:
-            am_store.slot[am_store.cur] = sc;
-            am_store.saved |= (uint8_t)(1u << am_store.cur);
-            if (plat_store_save(OBJ_SETTINGS, &am_store, sizeof am_store) == 0) {
-                sc_dirty = 0;
-                app_say("SAVED", SCENE_NAME[am_store.cur]);
-            } else {
-                app_say("SAVE", "FAILED");
-            }
+            scene_save();
             break;
         default:
             break;
@@ -1301,13 +1537,8 @@ static void input(void)
             track_pick(cur_trk);
         }
     }
-    if ((e = plat_enc(EN_PRESET)) != 0) {
-        int32_t s = clamp((int32_t)am_store.cur + e, 0, 3);
-        if (s != am_store.cur) {
-            scene_use((uint32_t)s);
-            app_say("SCENE", SCENE_NAME[s]);
-        }
-    }
+    if ((e = plat_enc(EN_PRESET)) != 0)
+        scene_step(e);
     for (k = 0; k < 4u; k++)
         if ((e = plat_enc((int)(EN_K1 + k))) != 0)
             ref_turn(PG_REF[ui.page][ui.sub[ui.page]][k], e);
@@ -1317,7 +1548,7 @@ static void input(void)
     ui.btn = btn;
     {   /* the lights: the page's button, PLAY, SEL, REC, SAVE; in scale mode the black keys show the track, page,
          * mute and solo, and the white keys glow */
-        uint32_t lb = btn | (1u << PG_BTN[ui.page]), lk = keys, dk = 0, latched = 0;
+        uint32_t lb = btn | (PG_BTN[ui.page] < NB ? 1u << PG_BTN[ui.page] : 0u), lk = keys, dk = 0, latched = 0;
         if (playing)
             lb |= 1u << B_PLAY;
         if (scale_mode)
@@ -1331,18 +1562,19 @@ static void input(void)
         lk |= latched;
         if (scale_mode) {
             uint32_t len = SCALE_LEN[sc.gp[GP_SCALE]];
-            lk |= 1u << BK[cur_trk];
-            if (PG_N[ui.page] > 1u)
-                lk |= 1u << BK[6 + ui.sub[ui.page]];
-            if (sc.tp[cur_trk][TP_MUTE])
-                lk |= 1u << BK[9];
-            if (sc.tp[cur_trk][TP_SOLO])
-                lk |= 1u << BK[10];
+            for (k = 0; k < 11u; k++) {          /* the black keys: lit when on, glowing when they do something */
+                uint32_t arg, lit;
+                const char *lbl;
+                if (slot(k, &arg, &lbl, &lit) == S_NONE)
+                    continue;
+                if (lit)
+                    lk |= 1u << BK[k];
+                else
+                    dk |= 1u << BK[k];
+            }
             for (k = 0; k < 16u; k++)
                 if (k % len == 0u)
-                    lk |= 1u << WK[k];
-                else
-                    dk |= 1u << WK[k];
+                    dk |= 1u << WK[k];          /* the roots glow */
         }
         plat_lights(lb, lk, 0x3FFFu & ~lb, dk, 1);
     }
@@ -1381,12 +1613,50 @@ static void draw(void)
         text_cat(t, SCENE_NAME[am_store.cur]);
         if (sc_dirty)
             text_cat(t, " *");
+        if (scale_mode) {                    /* the footer is the key map: the load and the tempo go up here */
+            char c[8];
+            int_text((int32_t)sc.gp[GP_TEMPO], c);
+            text_cat(t, "  ");
+            text_cat(t, c);
+            text_cat(t, playing ? " BPM  CPU " : " STOP  CPU ");
+            int_text((int32_t)plat_cpu_pct(), c);
+            text_cat(t, c);
+            text_cat(t, "%");
+        }
         cv_text(232 - text_w(&FONT_XS, t), 20, &FONT_XS, t, C_DIM);
     }
     cv_blit(0, 0);
     /* the middle: HOME shows the six tracks, every other page its four values */
     cv_begin(240, 144, C_BLACK);
-    if (pg == PG_HOME) {
+    if (pg == PG_MIX) {                      /* six strips: level, activity, M and S; the track's mix below */
+        for (k = 0; k < NTRK; k++) {
+            int32_t x = 4 + (int32_t)k * 39, h = (int32_t)sc.tp[k][TP_LEVEL] * 56 / 100;
+            uint32_t aud = track_audible(k), mu = sc.tp[k][TP_MUTE], so = sc.tp[k][TP_SOLO];
+            char n[2] = {(char)('1' + k), 0};
+            if (k == cur_trk)
+                cv_rect(x - 2, 0, 38, 98, C_LINE);
+            cv_rect(x, 0, 34, 3, TCOL[k]);
+            cv_text(x + 2, 4, &FONT_B, n, aud ? C_WHITE : C_DIM);
+            cv_text(x + 14, 7, &FONT_T, INST_3[sc.tp[k][TP_INST]], aud ? C_GRAY : C_DIM);
+            cv_rect(x + 4, 24, 8, 56, C_DIM);
+            cv_rect(x + 4, 80 - h, 8, h, aud ? TCOL[k] : C_LINE);
+            cv_rect(x + 18, 74, 12, 6, trk_active[k] && aud ? TCOL[k] : C_LINE);   /* sounding */
+            cv_rect(x + 16, 26, 16, 14, mu ? C_AMB : C_BLACK);
+            cv_text(x + 20, 26, &FONT_XS, "M", mu ? C_BLACK : C_DIM);
+            cv_rect(x + 16, 44, 16, 14, so ? C_WHITE : C_BLACK);
+            cv_text(x + 21, 44, &FONT_XS, "S", so ? C_BLACK : C_DIM);
+            cv_text(x + 2, 83, &FONT_T, aud ? "ON" : (mu ? "MUTED" : "OFF"), aud ? C_HI : C_DIM);
+        }
+        for (k = 0; k < 4u; k++) {
+            uint32_t ref = PG_REF[PG_MIX][0][k];
+            int32_t x = 4 + (int32_t)k * 59;
+            cv_text(x, 102, &FONT_T, ref_name(ref), C_GRAY);
+            ref_text(ref, t);
+            cv_text(x, 116, &FONT_S, t, C_HI);
+            cv_rect(x, 136, 54, 3, C_DIM);
+            cv_rect(x, 136, (int32_t)(ref_frac(ref) * 54u / 200u), 3, TCOL[cur_trk]);
+        }
+    } else if (pg == PG_HOME) {
         for (k = 0; k < NTRK; k++) {
             int32_t y = (int32_t)k * 16;
             uint32_t w = sc.tp[k][TP_LEVEL];
@@ -1430,8 +1700,36 @@ static void draw(void)
         }
     }
     cv_blit(0, 40);
-    /* the footer: the six tracks, the key and scale, the modes, the load */
+    /* the footer: in scale mode the black keys' map (each key's label over its place on the keyboard), else the
+     * six tracks, the key and scale, the modes, the load */
     cv_begin(240, 52, C_BLACK);
+    if (scale_mode) {
+        static const uint8_t WK[16] = PLAT_WHITE_KEYS, BK[11] = PLAT_BLACK_KEYS;
+        for (k = 0; k < 16u; k++)                    /* the white keys: the roots marked */
+            cv_rect((int32_t)k * 15 + 1, 30, 13, 21, k % SCALE_LEN[sc.gp[GP_SCALE]] == 0u ? C_DIM : C_LINE);
+        for (k = 0; k < 11u; k++) {
+            uint32_t arg, lit, w, j, a;
+            const char *lbl;
+            int32_t cx, x, lw;
+            uint16_t col;
+            a = slot(k, &arg, &lbl, &lit);
+            for (w = 0, j = 0; j < 16u; j++)         /* the white key just below it */
+                if (WK[j] < BK[k])
+                    w = j;
+            cx = (int32_t)(w + 1u) * 15;
+            col = a == S_NONE ? C_BLACK : lit ? ((a == S_TRK || a == S_MTRK) ? TCOL[arg] : C_HI) : C_GRAY;
+            cv_rect(cx - 5, 30, 10, 14, C_BLACK);
+            cv_rect(cx - 4, 30, 8, 13, a == S_NONE ? C_LINE : lit ? col : C_DIM);
+            if (a == S_NONE)
+                continue;
+            lw = text_w(&FONT_T, lbl);
+            x = clamp(cx - lw / 2, 1, 239 - lw);
+            cv_text(x, (k & 1u) ? 14 : 1, &FONT_T, lbl, lit ? (a == S_MTRK && ui.mix_mode == 0u ? C_AMB : C_WHITE)
+                                                         : ((a == S_TRK || a == S_MTRK) ? TCOL[arg] : C_GRAY));
+        }
+        cv_blit(0, 188);
+        return;
+    }
     for (k = 0; k < NTRK; k++) {
         int32_t x = 6 + (int32_t)k * 22;
         char n[2] = {(char)('1' + k), 0};
@@ -1512,6 +1810,16 @@ int app_expect(const char *what, int *got)
         *got = sc.tp[cur_trk][TP_MUTE];
     else if (!strcmp(what, "dirty"))
         *got = sc_dirty;
+    else if (!strcmp(what, "mutes") || !strcmp(what, "solos")) {
+        for (k = 0; k < NTRK; k++)
+            n |= (uint32_t)sc.tp[k][what[0] == 'm' ? TP_MUTE : TP_SOLO] << k;
+        *got = (int)n;
+    } else if (!strcmp(what, "mix_mode"))
+        *got = ui.mix_mode;
+    else if (!strcmp(what, "dejavu"))
+        *got = sc.tp[cur_trk][TP_DEJAVU];
+    else if (!strcmp(what, "arp"))
+        *got = sc.tp[cur_trk][TP_ARPON] ? sc.tp[cur_trk][TP_ARPPAT] + 1 : 0;
     else if (!strcmp(what, "scene"))
         *got = am_store.cur;
     else if (!strcmp(what, "voices")) {

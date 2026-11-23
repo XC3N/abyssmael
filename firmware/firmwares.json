@@ -3,10 +3,10 @@
     {
       "id": "ambient",
       "name": "AMBIENT",
-      "version": "0.1 (dev build)",
+      "version": "0.2 (dev build)",
       "product": "FM-1_5800",
       "file": "ambient/ambient.fwsc",
-      "sha256": "8f6dea9e217adf0350388034a4275daf12d0b670485990210c040175662effc7",
+      "sha256": "1afb5afb6804be9ea2fee47ac25da95dc2405127ec76a35f6c830c07bcc266f9",
       "description": "A six-track generative ambient firmware. Each track has its own instrument (DRONE, PAD, BELL, PLUCK, TEXTURE), envelope, filter, two LFOs, a generator and an arpeggio. A global delay, a shimmer reverb and an AGE layer (tape hiss, vinyl crackle, wow and flutter). Four scenes: DEEP, GLASS, TIDE, VOID. Plays from power-on.",
       "controls": [
         [
@@ -47,7 +47,11 @@
         ],
         [
           "SEL",
-          "Scale mode: white keys play the scale, black keys pick tracks (1-6), pages (7-9), mute, solo"
+          "Scale mode (on at power-on): white keys play the scale, the black keys are contextual submenus shown at the bottom of the screen"
+        ],
+        [
+          "Black keys",
+          "Tracks, track/scene up and down, page choices; the top black key opens MIX (mute and solo). Tap to open or close, hold to peek"
         ],
         [
           "PLAY",
