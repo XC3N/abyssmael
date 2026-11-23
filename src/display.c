@@ -40,7 +40,7 @@ static void draw(void)
         text_cat(t, SCENE_NAME[am_store.cur]);
         if (sc_dirty)
             text_cat(t, " *");
-        if (scale_mode) {                    /* the footer is the key map: the load and the tempo go up here */
+        {                                    /* the load and the tempo go up here, whatever the footer shows */
             char c[8];
             int_text((int32_t)sc.gp[GP_TEMPO], c);
             text_cat(t, "  ");
@@ -55,7 +55,7 @@ static void draw(void)
     cv_blit(0, 0);
     /* the middle: HOME shows the six tracks, every other page its four values; in scale mode the footer is short, so
      * the middle is taller */
-    cv_begin(240, scale_mode ? 162u : 144u, C_BLACK);
+    cv_begin(240, 162, C_BLACK);
     if (pg == PG_MIX) {                      /* six strips: level, activity, M and S; the track's mix below */
         for (k = 0; k < NTRK; k++) {
             int32_t x = 4 + (int32_t)k * 39, h = (int32_t)sc.tp[k][TP_LEVEL] * 56 / 100;
@@ -84,7 +84,7 @@ static void draw(void)
             cv_rect(x, 136, 54, 3, C_DIM);
             cv_rect(x, 136, (int32_t)(ref_frac(ref) * 54u / 200u), 3, TCOL[cur_trk]);
         }
-    } else if (pg == PG_SEQ && sub == 2u && sc.tp[cur_trk][TP_SMODE] == 1u && scale_mode) {
+    } else if (pg == PG_SEQ && sub == 2u && sc.tp[cur_trk][TP_SMODE] == 1u) {
         /* EUCL as a ring: the steps round a circle, hits filled, the playhead a spoke; the hits and rotation in play */
         static const int8_t CS[96] = {100,100,99,98,97,95,92,90,87,83,79,75,71,66,61,56,50,44,38,32,26,20,13,7,0,-7,-13,-20,
             -26,-32,-38,-44,-50,-56,-61,-66,-71,-75,-79,-83,-87,-90,-92,-95,-97,-98,-99,-100,-100,-100,-99,-98,-97,-95,
@@ -242,7 +242,7 @@ static void draw(void)
     } else {
         for (k = 0; k < 4u; k++) {
             uint32_t ref = page_ref(pg, sub, k);
-            int32_t y = (int32_t)k * (scale_mode ? 40 : 36);
+            int32_t y = (int32_t)k * 40;
             cv_text(10, y + 2, &FONT_XS, "K", C_DIM);
             int_text((int32_t)k + 1, t);
             cv_text(18, y + 2, &FONT_XS, t, C_DIM);
@@ -289,36 +289,17 @@ static void draw(void)
         cv_blit(0, 206);
         return;
     }
-    cv_begin(240, 52, C_BLACK);
-    for (k = 0; k < NTRK; k++) {
-        int32_t x = 6 + (int32_t)k * 22;
-        char n[2] = {(char)('1' + k), 0};
-        uint16_t c = k == cur_trk ? TCOL[k] : C_LINE;
-        cv_rect(x, 4, 18, 16, c);
-        cv_text(x + 6, 4, &FONT_XS, n, track_audible(k) ? C_WHITE : C_DIM);
-        if (trk_active[k])
-            cv_rect(x, 21, 18, 2, TCOL[k]);
-    }
+    /* scale mode off: the same 34 px strip, the modes and the key and scale (the tracks, tempo and load are in the header) */
+    cv_begin(240, 34, C_BLACK);
+    cv_text(8, 2, &FONT_XS, playing ? "PLAY" : "STOP", playing ? C_HI : C_DIM);
+    cv_text(54, 2, &FONT_XS, "SCALE", scale_mode ? C_HI : C_DIM);
+    cv_text(104, 2, &FONT_XS, "LATCH", latch ? C_HI : C_DIM);
     t[0] = 0;
     text_cat(t, NOTE_NAME[sc.gp[GP_KEY] % 12u]);
     text_cat(t, " ");
     text_cat(t, SCALE_NAME[sc.gp[GP_SCALE]]);
-    cv_text(140, 4, &FONT_XS, t, C_HI);
-    cv_text(6, 30, &FONT_XS, playing ? "PLAY" : "STOP", playing ? C_HI : C_DIM);
-    cv_text(42, 30, &FONT_XS, "SCALE", scale_mode ? C_HI : C_DIM);
-    cv_text(82, 30, &FONT_XS, "LATCH", latch ? C_HI : C_DIM);
-    int_text((int32_t)sc.gp[GP_TEMPO], t);
-    text_cat(t, " BPM");
-    cv_text(124, 30, &FONT_XS, t, C_GRAY);
-    t[0] = 0;
-    text_cat(t, "CPU ");
-    {
-        char c[8];
-        int_text((int32_t)plat_cpu_pct(), c);
-        text_cat(t, c);
-        text_cat(t, "%");
-    }
-    cv_text(234 - text_w(&FONT_XS, t), 30, &FONT_XS, t, plat_cpu_pct() > 80u ? C_WHITE : C_GRAY);
-    cv_blit(0, 188);
+    cv_text(232 - text_w(&FONT_XS, t), 2, &FONT_XS, t, C_HI);
+    cv_text(8, 18, &FONT_XS, "KEYS PLAY CHROMATIC: SEL FOR SCALE MODE", C_DIM);
+    cv_blit(0, 206);
 }
 
