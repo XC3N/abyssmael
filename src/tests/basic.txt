@@ -82,6 +82,51 @@ wav euclid.wav
 wait 8000
 wavstop
 shot euclid_play.png
+# EUCL: hold a hit, K1 its note, K2 its condition; a tap makes it a rest and back
+key w0 down
+wait 40
+spin K2 1
+wait 40
+expect cd0 1
+spin K1 2
+wait 40
+key w0 up
+wait 40
+expect hn0 6
+shot euclid_cond.png
+tapkey w1
+wait 40
+expect hn1 31
+tapkey w1
+wait 40
+expect hn1 0
+# EUCL SEQ 2: DRIFT on K4; pattern page: DIRECTION on K3
+tapkey b1
+wait 40
+expect page 41
+spin K4 5
+wait 40
+expect edrift 10
+tapkey b2
+wait 40
+spin K3 2
+wait 40
+expect edir 2
+# ARP 2: ARP FROM on K1
+tap ARP
+wait 40
+tapkey b1
+wait 40
+expect page 51
+spin K1 2
+wait 40
+expect arpsrc 2
+shot arp_src.png
+tap SEQ
+wait 40
+tapkey b2
+wait 40
+expect page 42
 # STEP: white keys are the steps
 tapkey b7
 wait 40

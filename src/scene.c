@@ -104,7 +104,7 @@ static void scene_factory(scene_t *s, uint32_t n)
         p[TP_SLEN] = 16;
         p[TP_SCHANCE] = 100;
         for (i = 0; i < 16u; i++)
-            s->hn[t][i] = DEF_HN[i], s->sn[t][i] = DEF_SN[i];
+            s->hn[t][i] = DEF_HN[i], s->sn[t][i] = DEF_SN[i], s->cd[t][i] = C_ALWAYS;
         s->son[t] = 0x4949u;
     }
     if (n == 2) {                            /* TIDE: a Euclidean pluck and a stepped one */
