@@ -120,7 +120,7 @@ export class Simulator {
       return e;
     };
     const bgrp = (ids) => h("div", { class: "bgrp" }, ids.map(button));
-    const btns = h("div", { class: "simpanel" }, [bgrp([0, 1, 2, 3]), bgrp([4, 5, 6, 7]), bgrp([8, 9, 11, 10])]);   // FX SEL ENV LFO | EDIT GLO HOME SAVE | ARP SEQ REC PLAY
+    const btns = h("div", { class: "simpanel" }, bgrp([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]));   // the panel's order, two rows of six: FX SEL ENV LFO EDIT GLO / HOME SAVE ARP SEQ PLAY REC
     const kb = h("div", { class: "simkeys", role: "group", "aria-label": "Keys" });
     WHITE.forEach((k, i) => kb.append(this.key(k, "w", i * (100 / WHITE.length), 100 / WHITE.length)));
     BLACK.forEach((k) => {
@@ -132,8 +132,8 @@ export class Simulator {
     this.vol.gain.value = 0.25;
     this.root.replaceChildren(
       h("div", { class: "simdev" },
-        h("div", { class: "simtop" }, this.screen, h("div", { class: "simctl" }, nav, macros)),
-        btns, octs, kb),
+        h("div", { class: "simtop" }, this.screen, h("div", { class: "simctl" }, nav, macros, btns)),
+        octs, kb),
       this.statusEl, this.say,
       h("p", { class: "meta" }, c.help || "Turn an encoder by dragging it up or down, with the mouse wheel, or with its - and + buttons. Play the keys with the mouse, touch, or the computer keyboard (A W S E D F T G Y H U J K…)."),
       this.canvas);
