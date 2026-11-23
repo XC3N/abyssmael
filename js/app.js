@@ -90,17 +90,64 @@ async function loadList() {
     box.replaceChildren(h("div", { class: "banner bad" }, "Could not load the firmware list. If you opened this page as a file, serve it instead: python3 -m http.server, then open http://localhost:8000."));
     return;
   }
-  box.replaceChildren(...firmwares.map(card));
+  renderLists();
+}
+
+// Builds: an entry's top-level fields are its "main" build. An optional "tests" array lists test builds (profile builds, PR builds):
+// each needs file + sha256 + version (and wasm for a player build), anything else it leaves out is the main entry's.
+const selected = {};      // firmware id -> "main" or the index of the chosen test build
+function buildsOf(fw) {
+  const { tests, ...rest } = fw;
+  const main = { ...rest, channel: "main", label: "main" };
+  const list = (tests || []).filter((t) => t.file && t.sha256).map((t, i) => {
+    const b = { ...rest, ...t, channel: "test", label: t.label || "test " + (i + 1), preview: t.preview };
+    if (rest.sim || t.sim || t.wasm) b.sim = { ...(rest.sim || {}), ...(t.sim || {}), ...(t.wasm ? { wasm: t.wasm } : {}) };
+    if (!b.sim?.wasm) delete b.sim;
+    return b;
+  });
+  return { main, tests: list };
+}
+function current(fw) {
+  const { main, tests } = buildsOf(fw), k = selected[fw.id];
+  return k === undefined || k === "main" || !tests[k] ? main : tests[k];
+}
+// main / test switch (and the list of test builds); only for firmwares that have test builds. `need`: only builds with this field count
+function picker(fw, need) {
+  const { tests } = buildsOf(fw);
+  const usable = tests.map((b, i) => [b, i]).filter(([b]) => !need || b[need]);
+  if (!usable.length) return "";
+  const k = selected[fw.id] === undefined ? "main" : selected[fw.id];
+  const seg = (label, on, fn) => { const b = h("button", { type: "button", class: "seg" + (on ? " on" : ""), role: "radio", "aria-checked": String(on) }, label); b.onclick = fn; return b; };
+  const row = h("div", { class: "picker", role: "radiogroup", "aria-label": "Build" },
+    seg("main", k === "main", () => { selected[fw.id] = "main"; renderLists(); }),
+    seg("test", k !== "main", () => { if (k === "main") { selected[fw.id] = usable[0][1]; renderLists(); } }));
+  if (k !== "main") {
+    const sel = h("select", { "aria-label": "Test build" }, usable.map(([b, i]) => h("option", { value: String(i) }, b.label + " · " + b.version)));
+    sel.value = String(k);
+    sel.onchange = () => { selected[fw.id] = +sel.value; renderLists(); };
+    row.append(sel);
+  }
+  return row;
+}
+function buildInfo(b) {
+  if (b.channel !== "test") return "";
+  return h("p", { class: "meta" }, `Test build ${b.label}${b.commit ? " · commit " + String(b.commit).slice(0, 7) : ""}${b.built ? " · built " + b.built : ""}. ${b.notes || "Unreleased: it may be unstable."} SAFE MODE and "Back to stock" can always recover the FM-1.`);
+}
+function renderLists() {
+  $("list").replaceChildren(...firmwares.map(card));
   $("trylist").replaceChildren(...firmwares.filter((f) => f.sim).map(tryCard));
   refreshButtons();
 }
 
-function card(fw) {
-  const btn = h("button", { "data-install": fw.id }, fw.recovery ? "Restore" : "Install");
+function card(entry) {
+  const fw = current(entry);
+  const btn = h("button", { "data-install": fw.id }, fw.recovery ? "Restore" : fw.channel === "test" ? "Install test build" : "Install");
   btn.onclick = () => startInstall(fw);
   return h("div", { class: "panel fw" },
     h("h3", {}, fw.name),
+    picker(entry, "file"),
     h("div", { class: "meta" }, `${fw.version} · ${fw.product} · ${fw.license || ""}`),
+    buildInfo(fw),
     h("p", {}, fw.description || ""),
     h("div", {}, (fw.tags || []).map((t) => h("span", { class: "tag" }, t))),
     fw.preview ? h("audio", { controls: "", preload: "none", src: "firmware/" + fw.preview }) : "",
@@ -110,9 +157,10 @@ function card(fw) {
 }
 
 // the in-browser simulator (js/simulator.js): hear a firmware without flashing it
-function tryCard(fw) {
+function tryCard(entry) {
+  const cur = current(entry), fw = cur.sim ? cur : buildsOf(entry).main;
   return h("div", { class: "panel fw" },
-    h("h3", {}, fw.name), h("div", { class: "meta" }, fw.version),
+    h("h3", {}, fw.name), picker(entry, "sim"), h("div", { class: "meta" }, fw.version), buildInfo(fw),
     h("p", {}, "Play it here with no FM-1 and nothing to install. Works on phones too."),
     h("div", { class: "row" }, tryBtn(fw)));
 }
@@ -121,7 +169,7 @@ function tryBtn(fw) {
   const b = h("button", { class: "ghost", type: "button" }, "Try in browser");
   b.onclick = async () => {
     sim?.stop();
-    $("sim-title").textContent = "Try " + fw.name;
+    $("sim-title").textContent = "Try " + fw.name + (fw.channel === "test" ? ` (test: ${fw.label})` : "");
     $("sim").showModal();
     sim = new Simulator($("sim-body"), fw);
     try { await sim.start(); } catch (e) { $("sim-body").replaceChildren(h("div", { class: "err" }, "The simulator could not start: " + e.message)); }
@@ -161,7 +209,7 @@ async function startInstall(fw) {
     if (!r.ok) throw new Error(`could not download ${fw.file} (${r.status})`);
     pkg = await openPackage(await r.arrayBuffer(), fw);   // checks SHA-256 and identity against the list
   } catch (e) { return showFailure(fw.name, e); }
-  confirmAndRun(fw.name, pkg, { recovery: !!fw.recovery, verified: true });
+  confirmAndRun(fw.channel === "test" ? `${fw.name} (test build ${fw.label})` : fw.name, pkg, { recovery: !!fw.recovery, verified: true });
 }
 
 $("localfile").onchange = async (ev) => {
