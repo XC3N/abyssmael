@@ -24,3 +24,5 @@ interrupted install resumes (device left in update mode); SAFE MODE and "Back to
 ## Credits
 `js/fm1ota.js` and `js/fm1ports.js` are copied unchanged from fm1-base (MPL-2.0, Charles Vestal, Leo Kuroshita and
 contributors). Stock V15 package: M-VAVE, fm1_open (Apache-2.0).
+
+Live site: https://xc3n.github.io/abyssmael/ (deployed by .github/workflows/pages.yml on every push to main).
