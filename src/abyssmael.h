@@ -135,13 +135,13 @@ static const pdesc_t GPD[NGP] = {
 enum { PG_HOME, PG_EDIT, PG_ENV, PG_LFO, PG_SEQ, PG_ARP, PG_FX, PG_GLO, PG_MIX, NPG };
 static const char *const PG_NAME[NPG] = {"HOME", "EDIT", "ENV", "LFO", "SEQ", "ARP", "FX", "GLO", "MIX"};
 static const uint8_t PG_BTN[NPG] = {B_HOME, B_EDIT, B_ENV, B_LFO, B_SEQ, B_ARP, B_FX, B_GLO, 0xFFu};   /* MIX: a black key */
-static const uint8_t PG_N[NPG] = {1, 2, 2, 2, 3, 1, 3, 3, 1};
+static const uint8_t PG_N[NPG] = {1, 2, 2, 2, 3, 2, 3, 3, 1};
 static const char *const PG_TITLE[NPG][3] = {
     {"HOME"}, {"SOUND A", "SOUND B"}, {"AMP ENVELOPE", "FILTER"}, {"LFO 1", "LFO 2"}, {"SEQUENCER", "", "PATTERN"},
-    {"ARPEGGIO"}, {"TRACK MIX", "DELAY", "SHIMMER REVERB"}, {"KEY AND TIME", "DRIFT", "AGE"}, {"MUTE AND SOLO"}};
+    {"ARPEGGIO", "ARP SOURCE"}, {"TRACK MIX", "DELAY", "SHIMMER REVERB"}, {"KEY AND TIME", "DRIFT", "AGE"}, {"MUTE AND SOLO"}};
 /* the pages' short names, for the black keys */
 static const char *const PG_SHORT[NPG][3] = {
-    {""}, {"SND A", "SND B"}, {"AMP", "FILT"}, {"LFO1", "LFO2"}, {"SEQ", "", "PATT"}, {"ARP"}, {"MIX", "DELAY", "VERB"},
+    {""}, {"SND A", "SND B"}, {"AMP", "FILT"}, {"LFO1", "LFO2"}, {"SEQ", "", "PATT"}, {"ARP", "SRC"}, {"MIX", "DELAY", "VERB"},
     {"KEY", "DRIFT", "AGE"}, {""}};
 static const uint8_t PG_REF[NPG][3][4] = {
     {{G(GP_DARK), G(GP_ACT), G(GP_SPACE), TP_LEVEL}},
@@ -149,7 +149,7 @@ static const uint8_t PG_REF[NPG][3][4] = {
     {{TP_ATK, TP_DEC, TP_SUS, TP_REL}, {TP_CUT, TP_RES, TP_FENV, TP_KEYT}},
     {{TP_L1RATE, TP_L1DEP, TP_L1SHP, TP_L1TGT}, {TP_L2RATE, TP_L2DEP, TP_L2SHP, TP_L2TGT}},
     {{TP_RATE, TP_GATE, TP_OCT, TP_ACCENT}, {0}, {0}},   /* SEQ 2 and 3: the mode's (seq_ref) */
-    {{TP_ARPON, TP_ARPRATE, TP_ARPPAT, TP_ARPGATE}},
+    {{TP_ARPON, TP_ARPRATE, TP_ARPPAT, TP_ARPGATE}, {TP_ARPSRC, TP_ARPON, TP_LEVEL, TP_PAN}},
     {{TP_LEVEL, TP_PAN, TP_DSEND, TP_RSEND}, {G(GP_DTIME), G(GP_DFB), G(GP_DTONE), G(GP_DMIX)},
      {G(GP_RSIZE), G(GP_RDAMP), G(GP_RSHIM), G(GP_RMIX)}},
     {{G(GP_KEY), G(GP_SCALE), G(GP_TEMPO), G(GP_SWING)}, {G(GP_DRIFT), G(GP_MOVE), G(GP_TUNE), G(GP_THEME)},
@@ -161,7 +161,7 @@ static const uint8_t PG_REF[NPG][3][4] = {
 
 /* SEQ pages 2 and 3: the track's mode's four values */
 static const uint8_t MODE_REF[3][4] = {{TP_DENS, TP_RANGE, TP_STEPS, TP_DEJAVU},
-                                       {TP_EHITS, TP_ELEN, TP_EROT, TP_ECHANCE},
+                                       {TP_EHITS, TP_ELEN, TP_EROT, TP_EDRIFT},
                                        {TP_SLEN, TP_SDIR, TP_SCHANCE, TP_SMUT}};
 typedef struct {
     uint32_t magic;

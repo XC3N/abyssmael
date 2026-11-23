@@ -66,6 +66,10 @@ void app_say(const char *a, const char *b)
 /* a page's value k: SEQ 2 and 3 show the track's mode's values */
 static uint32_t page_ref(uint32_t pg, uint32_t sub, uint32_t k)
 {
+    if (pg == PG_SEQ && sub == 2u && sc.tp[cur_trk][TP_SMODE] == 1u) {   /* EUCL pattern: what shapes it as you watch */
+        static const uint8_t PAT_REF[4] = {TP_EHITS, TP_EROT, TP_EDIR, TP_ECHANCE};
+        return PAT_REF[k];
+    }
     if (pg == PG_SEQ && sub > 0u)
         return MODE_REF[sc.tp[cur_trk][TP_SMODE]][k];
     return PG_REF[pg][sub][k];
@@ -524,13 +528,19 @@ static void input(void)
             if (ui.note_edit) {              /* entering notes: write it, then play it as usual */
                 if (pressed & bit)
                     note_enter(wi);
-            } else if (sc.tp[cur_trk][TP_SMODE] == 2u) {   /* STEP: the white keys are the 16 steps */
+            } else {                         /* STEP: the white keys are the 16 steps; EUCL: its hits */
+                if (sc.tp[cur_trk][TP_SMODE] == 1u && wi >= seq_count(cur_trk))
+                    continue;                /* beyond the last hit: nothing there */
                 if (pressed & bit) {
                     ui.hold_step = (int8_t)wi;
                     ui.hold_turned = 0;
                 } else if (ui.hold_step == (int8_t)wi) {
-                    if (!ui.hold_turned)     /* a tap turns the step on or off; held and turned, it only sets the note */
-                        sc.son[cur_trk] ^= (uint16_t)(1u << wi);
+                    if (!ui.hold_turned) {   /* a tap turns a step on or off, or a hit into a rest and back */
+                        if (sc.tp[cur_trk][TP_SMODE] == 2u)
+                            sc.son[cur_trk] ^= (uint16_t)(1u << wi);
+                        else
+                            sc.hn[cur_trk][wi] = sc.hn[cur_trk][wi] == REST ? 0u : REST;
+                    }
                     sc_dirty = 1;
                     ui.hold_step = -1;
                 }
@@ -606,15 +616,26 @@ static void input(void)
         scene_step(e);
     for (k = 0; k < 4u; k++)
         if ((e = plat_enc((int)(EN_K1 + k))) != 0) {
-            if (k == 0u && ui.hold_step >= 0) {   /* a step held: K1 is its note */
-                uint8_t *d = &sc.sn[cur_trk][ui.hold_step];
-                char nm[4] = {0, 0, 0, 0};
-                *d = (uint8_t)clamp((int32_t)*d + e, 0, 15);
-                sc.son[cur_trk] |= (uint16_t)(1u << ui.hold_step);
+            if (k <= 1u && ui.hold_step >= 0) {   /* a step or hit held: K1 is its note, K2 its condition */
+                uint32_t h = (uint32_t)ui.hold_step;
+                uint32_t eu = sc.tp[cur_trk][TP_SMODE] == 1u;
                 ui.hold_turned = 1;
                 sc_dirty = 1;
-                text_cat(nm, NOTE_NAME[degree_note(*d, 0) % 12]);
-                app_say("STEP NOTE", nm);
+                if (k == 1u) {
+                    int32_t c = clamp((int32_t)sc.cd[cur_trk][h] + e, 0, NCOND - 1);
+                    sc.cd[cur_trk][h] = (uint8_t)c;
+                    app_say("CONDITION", COND_NAME[c]);
+                    continue;
+                }
+                {
+                    uint8_t *d = eu ? &sc.hn[cur_trk][h] : &sc.sn[cur_trk][h];
+                    char nm[4] = {0, 0, 0, 0};
+                    *d = (uint8_t)clamp((int32_t)(*d == REST ? 0 : *d) + e, 0, 15);
+                    if (!eu)
+                        sc.son[cur_trk] |= (uint16_t)(1u << h);
+                    text_cat(nm, NOTE_NAME[degree_note(*d, 0) % 12]);
+                    app_say(eu ? "HIT NOTE" : "STEP NOTE", nm);
+                }
                 continue;
             }
             ref_turn(page_ref(ui.page, ui.sub[ui.page], k), e);
