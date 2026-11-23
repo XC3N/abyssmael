@@ -1,0 +1,140 @@
+{
+  "firmwares": [
+    {
+      "id": "ambient-test",
+      "name": "AMBIENT TEST",
+      "version": "0.0 (dev build)",
+      "product": "FM-1_5800",
+      "file": "ambient-test/ambient.fwsc",
+      "sha256": "a2ac9ff442b2ade7a352c2271e4e6d82d9be51b1eefa9a0cf8b8d36cad35a59c",
+      "description": "A generative ambient test: a slow drone that drifts to new roots, random minor-pentatonic FM bells and a stereo feedback delay. Starts playing at power-on; the keys play a soft pad.",
+      "controls": [
+        [
+          "K1 DARK",
+          "Darker drone filter, softer bells"
+        ],
+        [
+          "K2 ACTIVITY",
+          "How often bells ring (0.05 to 2.5 a second)"
+        ],
+        [
+          "K3 DECAY",
+          "How long bells ring (0.6 to 10 s)"
+        ],
+        [
+          "K4 SPACE",
+          "Delay amount and feedback"
+        ],
+        [
+          "PLAY",
+          "Start / stop (fades)"
+        ],
+        [
+          "SEQ",
+          "New random root"
+        ],
+        [
+          "OCT- / OCT+",
+          "Pad octave"
+        ],
+        [
+          "SAVE",
+          "Keep the knobs and root"
+        ]
+      ],
+      "tags": [
+        "generative",
+        "ambient"
+      ],
+      "license": "MPL-2.0",
+      "credits": "Built on fm1-base by Charles Vestal and felucca-bsp by Leo Kuroshita.",
+      "preview": "ambient-test/preview.mp3",
+      "sim": {
+        "wasm": "ambient-test/sim.wasm",
+        "knobs": [
+          {
+            "label": "K1 DARK",
+            "enc": 3,
+            "get": 5
+          },
+          {
+            "label": "K2 ACTIVITY",
+            "enc": 4,
+            "get": 6
+          },
+          {
+            "label": "K3 DECAY",
+            "enc": 5,
+            "get": 7
+          },
+          {
+            "label": "K4 SPACE",
+            "enc": 6,
+            "get": 8
+          }
+        ],
+        "buttons": [
+          {
+            "label": "PLAY",
+            "id": 10,
+            "get": 0
+          },
+          {
+            "label": "SEQ (new root)",
+            "id": 9
+          },
+          {
+            "label": "OCT-",
+            "id": 12
+          },
+          {
+            "label": "OCT+",
+            "id": 13
+          },
+          {
+            "label": "SAVE",
+            "id": 7
+          }
+        ],
+        "keys": 27,
+        "firstNote": 53,
+        "status": [
+          {
+            "label": "Root",
+            "get": 1,
+            "fmt": "note"
+          },
+          {
+            "label": "Pad",
+            "get": 2,
+            "fmt": "note"
+          },
+          {
+            "label": "Last bell",
+            "get": 4,
+            "fmt": "note"
+          },
+          {
+            "label": "Bells",
+            "get": 3
+          }
+        ]
+      }
+    },
+    {
+      "id": "stock-v15",
+      "name": "Back to stock (M-VAVE V15)",
+      "version": "V15",
+      "product": "FM-1_015",
+      "file": "stock-v15/FM-1_015.fwsc",
+      "sha256": "db1642b2b6fa5c2cccb11ffd13878068bb28601678d3644049f99dc40e7edb8a",
+      "description": "M-VAVE's own firmware, from their official fm1_open repository (sdk/firmware/FM-1_015.fwsc). Use it to return the FM-1 to how it came.",
+      "tags": [
+        "recovery"
+      ],
+      "license": "Apache-2.0",
+      "credits": "M-VAVE. github.com/m-vave/fm1_open",
+      "recovery": true
+    }
+  ]
+}

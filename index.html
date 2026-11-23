@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FM-1 Firmware Flasher</title>
+<meta name="description" content="Install custom firmware on an M-VAVE FM-1 from your browser over USB-MIDI.">
+<style>
+:root {
+  --bg: #f6f5f1; --panel: #ffffff; --ink: #1c1d20; --muted: #62666e; --line: #dcdad2;
+  --accent: #0f6b66; --accent-ink: #ffffff; --warn-bg: #fff3d6; --warn-line: #e3c068; --bad: #b3261e; --bad-bg: #fde8e6; --ok: #1b7a3d;
+  --track: #e6e4dc;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #131416; --panel: #1c1e22; --ink: #ecebe6; --muted: #9a9ea6; --line: #33363c;
+    --accent: #4fc3bb; --accent-ink: #08201e; --warn-bg: #33290f; --warn-line: #7a6320; --bad: #ff8a80; --bad-bg: #3a1a18; --ok: #6fd08c;
+    --track: #2b2e34;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #131416; --panel: #1c1e22; --ink: #ecebe6; --muted: #9a9ea6; --line: #33363c;
+  --accent: #4fc3bb; --accent-ink: #08201e; --warn-bg: #33290f; --warn-line: #7a6320; --bad: #ff8a80; --bad-bg: #3a1a18; --ok: #6fd08c;
+  --track: #2b2e34;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+main { max-width: 760px; margin: 0 auto; padding: 24px 16px 64px; }
+h1 { font-size: 1.6rem; margin: 0 0 4px; letter-spacing: -0.01em; }
+h2 { font-size: 1.05rem; margin: 32px 0 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 600; }
+p { margin: 0 0 10px; }
+.lede { color: var(--muted); margin-bottom: 20px; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin-bottom: 12px; }
+.banner { border: 1px solid var(--warn-line); background: var(--warn-bg); border-radius: 10px; padding: 12px 14px; margin-bottom: 16px; }
+.banner.bad { border-color: var(--bad); background: var(--bad-bg); }
+button, .btn { font: inherit; font-weight: 600; background: var(--accent); color: var(--accent-ink); border: 0; border-radius: 8px; padding: 9px 16px; cursor: pointer; }
+button.ghost, .btn.ghost { background: transparent; color: var(--ink); border: 1px solid var(--line); }
+button:disabled { opacity: .45; cursor: not-allowed; }
+button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.status { display: flex; align-items: center; gap: 8px; margin-top: 10px; color: var(--muted); }
+.dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); flex: none; }
+.dot.ok { background: var(--ok); } .dot.bad { background: var(--bad); }
+code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .9em; }
+.fw h3 { margin: 0; font-size: 1.15rem; }
+.fw .meta { color: var(--muted); font-size: .9rem; margin: 2px 0 8px; }
+.tag { display: inline-block; border: 1px solid var(--line); border-radius: 99px; padding: 0 8px; font-size: .78rem; margin-right: 4px; color: var(--muted); }
+details { margin: 8px 0; } summary { cursor: pointer; color: var(--muted); }
+table { border-collapse: collapse; width: 100%; margin-top: 6px; font-size: .92rem; }
+td { padding: 3px 8px 3px 0; vertical-align: top; } td:first-child { white-space: nowrap; font-weight: 600; }
+audio { width: 100%; margin: 8px 0; }
+select, input[type=file] { font: inherit; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; max-width: 100%; }
+dialog { border: 1px solid var(--line); border-radius: 14px; background: var(--panel); color: var(--ink); max-width: 520px; width: calc(100% - 32px); padding: 20px; }
+dialog::backdrop { background: rgba(0,0,0,.55); }
+dialog h3 { margin: 0 0 10px; }
+.bar { height: 12px; background: var(--track); border-radius: 99px; overflow: hidden; margin: 14px 0 8px; }
+.bar > i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .25s; }
+.err { background: var(--bad-bg); border: 1px solid var(--bad); border-radius: 8px; padding: 10px 12px; margin: 10px 0; }
+.ok-msg { background: var(--panel); border: 1px solid var(--ok); border-radius: 8px; padding: 10px 12px; margin: 10px 0; }
+label.check { display: flex; gap: 10px; align-items: flex-start; margin: 14px 0; }
+label.check input { margin-top: 5px; }
+ul { padding-left: 20px; margin: 6px 0 10px; }
+footer { margin-top: 36px; color: var(--muted); font-size: .88rem; }
+a { color: var(--accent); }
+.hidden { display: none !important; }
+
+.meta { color: var(--muted); font-size: .9rem; }
+.simsay { font-weight: 700; font-size: 1.2rem; min-height: 1.6em; }
+.simstatus { color: var(--muted); font-size: .9rem; margin-bottom: 8px; }
+.simknobs { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin: 10px 0; }
+.simknobs label, .simvol { display: flex; flex-direction: column; gap: 2px; font-size: .85rem; font-weight: 600; }
+.simbtns { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+.simbtns button.lit { background: var(--accent); color: var(--accent-ink); }
+.simkeys { position: relative; height: 120px; margin: 12px 0 6px; touch-action: none; user-select: none; }
+.simkey { position: absolute; top: 0; border: 1px solid var(--line); border-radius: 0 0 5px 5px; cursor: pointer; }
+.simkey.w { height: 100%; background: #f4f3ee; } .simkey.b { height: 62%; background: #25272b; z-index: 2; }
+.simkey.on { background: var(--accent) !important; }
+.scope { width: 100%; height: 60px; background: var(--bg); border-radius: 8px; margin-top: 10px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>FM-1 Firmware Flasher</h1>
+  <p class="lede">Install custom firmware on an M-VAVE FM-1 straight from the browser, over USB. Nothing is uploaded anywhere: the page talks to your FM-1 directly.</p>
+
+  <div id="unsupported" class="banner bad hidden">
+    <strong>This browser can't talk to MIDI devices.</strong> Flashing works in Chrome, Edge or Opera on a computer, or Chrome on Android with a USB-OTG cable. iPhones and iPads (every iOS browser), Firefox and Safari don't offer Web MIDI. You can still use “Try in browser” below. The page also has to be served over https:// or from localhost, not opened as a file.
+  </div>
+
+  <h2>1. Connect your FM-1</h2>
+  <div class="panel">
+    <p>Plug the FM-1 in with a USB <em>data</em> cable and close any other app that uses MIDI (DAWs, editors, other flasher tabs). The browser will ask to use MIDI devices; allow it, including system-exclusive messages.</p>
+    <div class="row">
+      <button id="connect">Connect</button>
+      <button id="rescan" class="ghost hidden">Scan again</button>
+    </div>
+    <div class="status" aria-live="polite"><span id="dot" class="dot"></span><span id="devtext">Not connected</span></div>
+    <div id="portpick" class="hidden" style="margin-top:12px">
+      <p>The FM-1 was not found under a known port name. If you see it in this list, pick it:</p>
+      <div class="row"><select id="portlist" aria-label="MIDI port"></select><button id="tryport" class="ghost">Try this port</button></div>
+    </div>
+  </div>
+
+  <h2>2. Pick a firmware</h2>
+  <div id="list"></div>
+
+  <details class="panel">
+    <summary>Install a firmware file of your own</summary>
+    <p style="margin-top:10px">For a <code>.fwsc</code> you built yourself. It is checked the same way as the command-line installer: it has to be an FM-1 package, and either carry the Felucca update loader or be M-VAVE's own firmware. The device itself checks it again before writing anything.</p>
+    <input type="file" id="localfile" accept=".fwsc">
+  </details>
+
+  <h2>If something goes wrong</h2>
+  <div class="panel">
+    <ul>
+      <li><strong>The install was cut off</strong> (cable pulled, tab closed): the FM-1 stays in update mode. Reconnect it, press Connect, and press Install on the same firmware again. The write resumes.</li>
+      <li><strong>A new firmware crashes on start:</strong> two failed starts in a row bring up SAFE MODE, which this page can still reach. Connect and install any firmware.</li>
+      <li><strong>Back to how it came:</strong> install "Back to stock" above. It restores M-VAVE's V15 firmware.</li>
+      <li><strong>No MIDI port appears at all:</strong> try another USB cable (it has to carry data) and another port, and close other MIDI apps.</li>
+    </ul>
+  </div>
+
+  <footer>
+    <p>The install protocol and port detection are from <a href="https://github.com/charlesvestal/fm1-base">fm1-base</a> by Charles Vestal and Leo Kuroshita / Hügelton Instruments (MPL-2.0); see <code>js/fm1ota.js</code>. Not affiliated with M-VAVE. Flashing firmware is at your own risk.</p>
+  </footer>
+</main>
+
+<dialog id="confirm">
+  <h3 id="c-title">Install</h3>
+  <div id="c-body"></div>
+  <label class="check"><input type="checkbox" id="c-ok"> <span>I understand the FM-1 will be rewritten and that I must not unplug it or close this tab until it says done.</span></label>
+  <div class="row" style="justify-content:flex-end">
+    <button id="c-cancel" class="ghost">Cancel</button>
+    <button id="c-go" disabled>Install</button>
+  </div>
+</dialog>
+
+<dialog id="sim" style="max-width:680px">
+  <h3 id="sim-title">Try it</h3>
+  <p class="meta">This runs the firmware's own code in your browser, so you can hear it without flashing. The real FM-1 will sound close but not identical (its filters, speakers and exact timing differ).</p>
+  <div id="sim-body"></div>
+  <div class="row" style="justify-content:flex-end;margin-top:12px"><button id="sim-close" class="ghost">Close</button></div>
+</dialog>
+
+<dialog id="progress">
+  <h3 id="p-title">Installing</h3>
+  <div class="bar"><i id="p-bar"></i></div>
+  <p id="p-text" aria-live="polite">Starting…</p>
+  <div id="p-end"></div>
+  <div class="row" style="justify-content:flex-end"><button id="p-close" class="hidden">Close</button></div>
+</dialog>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>

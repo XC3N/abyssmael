@@ -1,0 +1,1 @@
+{ "name": "fm1-web-flasher", "private": true, "type": "module", "scripts": { "test": "node test/mock-device.test.mjs" } }
