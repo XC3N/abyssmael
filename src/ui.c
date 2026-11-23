@@ -180,9 +180,9 @@ enum { S_NONE, S_SUB, S_TRK, S_TPREV, S_TNEXT, S_INST, S_ENV, S_LFO, S_SEQ, S_AR
        S_SMODE, S_NOTES, S_RAND, S_REST, S_CURP, S_CURN };
 static const int8_t BK_TRK[11] = {0, 1, 2, -1, -1, 3, 4, 5, -1, -1, -1};
 static const char *const TRK_LBL[NTRK] = {"T1", "T2", "T3", "T4", "T5", "T6"};
-static const char *const INST_SHORT[NINST] = {"DRONE", "PAD", "BELL", "PLUCK", "TEXT"};
+static const char *const INST_SHORT[NINST] = {"DRN", "PAD", "BEL", "PLK", "TEX"};
 static const char *const INST_3[NINST] = {"DRN", "PAD", "BEL", "PLK", "TEX"};
-static const char *const ENV_LBL[5] = {"PERC", "PLUCK", "SWELL", "PAD", "HOLD"};
+static const char *const ENV_LBL[5] = {"PERC", "PLCK", "SWEL", "PAD", "HOLD"};
 static const uint8_t ENV_SET[5][4] = {{0, 40, 0, 45}, {0, 62, 0, 62}, {82, 60, 90, 86}, {62, 60, 80, 76}, {12, 60, 100, 52}};
 static const char *const LFO_LBL[5] = {"SINE", "TRI", "SAW", "RAND", "DRIFT"};
 static const uint8_t LFO_SET[5] = {0, 1, 2, 4, 5};
@@ -190,7 +190,7 @@ static const char *const SEQ_LBL[2] = {"NEW", "LOCK"};
 static const char *const ARP_LBL[5] = {"OFF", "UP", "DOWN", "UPDN", "RAND"};
 static const char *const SEND_LBL[5] = {"DRY", "DLY", "VERB", "BOTH", "WASH"};
 static const uint8_t SEND_SET[5][2] = {{0, 0}, {60, 10}, {10, 70}, {50, 60}, {80, 100}};
-static const char *const SCN_LBL[5] = {"DEEP", "GLASS", "TIDE", "VOID", "SAVE"};
+static const char *const SCN_LBL[5] = {"DEEP", "GLAS", "TIDE", "VOID", "SAVE"};
 
 /* what black key bi does on the page shown: its action (S_*), its argument, its label, lit (1) or not */
 static uint32_t slot(uint32_t bi, uint32_t *arg, const char **lbl, uint32_t *lit)
@@ -206,8 +206,8 @@ static uint32_t slot(uint32_t bi, uint32_t *arg, const char **lbl, uint32_t *lit
         return S_MIX;
     }
     if (pg == PG_HOME || pg == PG_MIX) {
-        static const char *const HL[4] = {"SCN-", "SCN+", "PLAY", "LATCH"};
-        static const char *const ML[4] = {"MUTE", "SOLO", "CLR M", "CLR S"};
+        static const char *const HL[4] = {"SC-", "SC+", "PLY", "LTC"};
+        static const char *const ML[4] = {"MUTE", "SOLO", "CLRM", "CLRS"};
         static const uint8_t HA[4] = {S_SPREV, S_SNEXT, S_PLAY, S_LATCH}, MA[4] = {S_MMODE, S_MMODE, S_MCLR, S_SCLR};
         uint32_t j = bi == 3u ? 0u : bi == 4u ? 1u : bi == 8u ? 2u : 3u;
         if (BK_TRK[bi] >= 0) {
@@ -244,7 +244,7 @@ static uint32_t slot(uint32_t bi, uint32_t *arg, const char **lbl, uint32_t *lit
         return bi == 3u ? S_CURP : S_CURN;
     }
     if (bi < 5u) {
-        *lbl = bi == 3u ? "TRK-" : "TRK+";
+        *lbl = bi == 3u ? "TK-" : "TK+";
         return bi == 3u ? S_TPREV : S_TNEXT;
     }
     *arg = c;
@@ -269,7 +269,7 @@ static uint32_t slot(uint32_t bi, uint32_t *arg, const char **lbl, uint32_t *lit
             return S_SEQ;
         }
         if (c == 3u) {
-            *lbl = "NOTES";
+            *lbl = "NOTE";
             *lit = ui.note_edit;
             return S_NOTES;
         }

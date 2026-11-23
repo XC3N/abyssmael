@@ -94,6 +94,11 @@ key w0 up
 wait 40
 expect hn0 6
 shot euclid_cond.png
+key w0 down
+wait 40
+shot euclid_hold.png
+key w0 up
+wait 40
 tapkey w1
 wait 40
 expect hn1 31

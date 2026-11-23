@@ -8,6 +8,7 @@
 #define APP_NAME "ABYSSMAEL"
 #define APP_SPLASH_RGB RGB(90, 150, 220)
 #define APP_BLOCK 256u                   /* frames per audio block: 5.8 ms at 44.1 kHz */
+#define APP_CANVAS_PX (240u * 162u)      /* the screen canvas: the middle area is 162 rows in scale mode (the default is 144) */
 
 /* the store: the four scenes, and the panel calibration (the platform's) */
 enum { OBJ_SETTINGS, OBJ_PANEL, OBJ_NOBJ };
