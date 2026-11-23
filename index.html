@@ -79,24 +79,44 @@ a { color: var(--accent); }
 .simdev { background: #17181b; border-radius: 12px; padding: 12px; color: #e8e8ea; }
 .simtop { display: flex; gap: 12px; align-items: flex-start; flex-wrap: wrap; justify-content: center; }
 .simscreen { width: min(100%, 300px); aspect-ratio: 1; border-radius: 6px; background: #000; box-shadow: 0 0 0 2px #2a2c31; }
-.simencs { display: grid; grid-template-columns: repeat(4, 66px); gap: 10px 6px; justify-content: center; align-content: start; flex: 1; min-width: 270px; }
 .enc { display: flex; flex-direction: column; align-items: center; gap: 4px; }
-.enc.k:nth-of-type(4) { grid-column: 1; }
 .encname { font-size: .7rem; font-weight: 700; letter-spacing: .03em; color: #c9cad0; }
 .knob { --a: 0deg; width: 46px; height: 46px; border-radius: 50%; background: radial-gradient(circle at 50% 40%, #4a4d55, #26282d); box-shadow: 0 2px 4px #000a, inset 0 0 0 2px #33363c; position: relative; cursor: ns-resize; touch-action: none; transform: rotate(var(--a)); }
 .knob::after { content: ""; position: absolute; left: 50%; top: 5px; width: 3px; height: 13px; margin-left: -1.5px; border-radius: 2px; background: #9fd0ff; }
 .knob:focus-visible { outline: 2px solid #9fd0ff; outline-offset: 3px; }
 .encrow { display: flex; gap: 4px; }
 .kstep { min-width: 26px; height: 24px; padding: 0; border-radius: 6px; border: 1px solid #3a3d44; background: #222428; color: #e8e8ea; font-size: .9rem; line-height: 1; }
-.simpanel { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; margin: 12px 0 0; }
 .pbtn { padding: 8px 0; border-radius: 7px; border: 1px solid #3a3d44; background: #222428; color: #c9cad0; font-size: .72rem; font-weight: 700; touch-action: none; user-select: none; }
 .pbtn.dim { background: #233142; color: #e8e8ea; }
 .pbtn.lit { background: #5aa0e6; color: #0b1520; border-color: #8cc2ff; }
-.simdev .simkeys { margin-top: 12px; }
 .simkey.w.dim { background: #c8dcf0; } .simkey.b.dim { background: #3d5470; }
 .simkey.w.lit { background: #8cc2ff; } .simkey.b.lit { background: #5aa0e6; }
+.simctl { display: flex; flex-direction: column; gap: 10px; flex: 1; min-width: 270px; }
+.grp { border: 1px solid #2f3238; border-radius: 10px; padding: 6px 8px 8px; }
+.grptitle { display: block; font-size: .65rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: #8d9098; margin-bottom: 6px; }
+.grpbody { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; justify-items: center; }
+.simpanel { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+.bgrp { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; flex: 1 1 200px; }
+.octs { display: flex; align-items: center; gap: 6px; margin: 14px 0 0; }
+.octs .grptitle { margin: 0 4px 0 0; }
+.octs .pbtn { min-width: 64px; }
+.simdev .simkeys { margin-top: 8px; }
+@media (max-width: 640px), (pointer: coarse) {
+  dialog#sim { width: 100%; max-width: 100%; max-height: 100dvh; height: auto; margin: 0; padding: 10px; border-radius: 0; border: 0; }
+  #sim .meta { font-size: .8rem; }
+  .simdev { padding: 8px; }
+  .simscreen { width: min(100%, 280px); margin: 0 auto; }
+  .simtop { flex-direction: column; align-items: stretch; gap: 10px; }
+  .simctl { min-width: 0; }
+  .knob { width: 52px; height: 52px; }
+  .kstep { min-width: 32px; height: 30px; }
+  .pbtn { padding: 12px 0; font-size: .72rem; }
+  .bgrp { flex-basis: 100%; }
+  .simkeys { height: 150px; }
+  .octs .pbtn { padding: 12px 0; }
+}
+@media (max-width: 380px) { .grpbody { gap: 2px; } .knob { width: 46px; height: 46px; } .kstep { min-width: 28px; } }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
-@media (max-width: 520px) { .simpanel { grid-template-columns: repeat(7, 1fr); gap: 4px; } .pbtn { font-size: .62rem; padding: 9px 0; } .simencs { min-width: 0; } }
 </style>
 </head>
 <body>

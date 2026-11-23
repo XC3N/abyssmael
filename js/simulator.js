@@ -102,8 +102,13 @@ export class Simulator {
     this.statusEl = h("div", { class: "simstatus" });
     this.screen = h("canvas", { width: 240, height: 240, class: "simscreen", role: "img", "aria-label": "The FM-1's screen" });
     this.img = this.screen.getContext("2d").createImageData(240, 240);
-    const encs = h("div", { class: "simencs" }, ENCODERS.map((name, role) => this.encoder(name, role)));
-    const btns = h("div", { class: "simpanel" }, BUTTONS.map((label, id) => {
+    const grp = (cls, title, kids) => h("div", { class: "grp " + cls, role: "group", "aria-label": title }, h("span", { class: "grptitle" }, title), h("div", { class: "grpbody" }, kids));
+    // like the panel: SELECT, ALGO and PRESET together with the master volume; the four macro knobs apart
+    const master = this.masterKnob();
+    const nav = grp("nav", "Browse", [this.encoder("SELECT", 0), this.encoder("ALGO", 1), this.encoder("PRESET", 2), master]);
+    const macros = grp("macros", "Macros", [3, 4, 5, 6].map((r) => this.encoder(ENCODERS[r], r)));
+    const button = (id) => {
+      const label = BUTTONS[id];
       const e = h("button", { class: "pbtn", type: "button", "aria-label": label }, label);
       const press = (d) => (ev) => { ev?.preventDefault?.(); if (d === 1 && e.dataset.down === "1") return; e.dataset.down = d ? "1" : ""; this.send({ t: "btn", id, d }); };
       e.onpointerdown = (ev) => { e.setPointerCapture?.(ev.pointerId); press(1)(ev); };
@@ -113,27 +118,37 @@ export class Simulator {
       e.oncontextmenu = (ev) => ev.preventDefault();
       this.btnEls[id] = e;
       return e;
-    }));
-    const nk = c.keys || 27, kb = h("div", { class: "simkeys", role: "group", "aria-label": "Keys" });
+    };
+    const bgrp = (ids) => h("div", { class: "bgrp" }, ids.map(button));
+    const btns = h("div", { class: "simpanel" }, [bgrp([0, 1, 2, 3]), bgrp([4, 5, 6, 7]), bgrp([8, 9, 11, 10])]);   // FX SEL ENV LFO | EDIT GLO HOME SAVE | ARP SEQ REC PLAY
+    const kb = h("div", { class: "simkeys", role: "group", "aria-label": "Keys" });
     WHITE.forEach((k, i) => kb.append(this.key(k, "w", i * (100 / WHITE.length), 100 / WHITE.length)));
     BLACK.forEach((k) => {
       const left = WHITE.findIndex((w) => w > k) - 1;
       kb.append(this.key(k, "b", (left + 1) * (100 / WHITE.length) - 100 / WHITE.length * 0.3, 100 / WHITE.length * 0.6));
     });
-    const volume = h("input", { type: "range", min: 0, max: 100, value: 50, "aria-label": "Volume" });
-    volume.oninput = () => { this.vol.gain.value = (volume.value / 100) ** 2; };
-    this.vol.gain.value = 0.25;
+    const octs = h("div", { class: "octs" }, h("span", { class: "grptitle" }, "Octave"), button(12), button(13));
     this.canvas = h("canvas", { width: 600, height: 80, class: "scope", "aria-label": "Output waveform" });
+    this.vol.gain.value = 0.25;
     this.root.replaceChildren(
-      h("div", { class: "simdev" }, h("div", { class: "simtop" }, this.screen, encs), btns, kb),
+      h("div", { class: "simdev" },
+        h("div", { class: "simtop" }, this.screen, h("div", { class: "simctl" }, nav, macros)),
+        btns, octs, kb),
       this.statusEl, this.say,
       h("p", { class: "meta" }, c.help || "Turn an encoder by dragging it up or down, with the mouse wheel, or with its - and + buttons. Play the keys with the mouse, touch, or the computer keyboard (A W S E D F T G Y H U J K…)."),
-      this.canvas, h("label", { class: "simvol" }, h("span", {}, "Volume"), volume));
-    void nk;
+      this.canvas);
   }
 
-  encoder(name, role) {
-    const turn = (d) => { if (d) { this.send({ t: "enc", role, d }); knob.style.setProperty("--a", ((+knob.dataset.a || 0) + d * 15) + "deg"); knob.dataset.a = String((+knob.dataset.a || 0) + d * 15); } };
+  // the master volume: a knob of the same kind (the page's, not the firmware's), 0..20 steps
+  masterKnob() {
+    this.masterStep = 10;
+    const set = () => { this.vol.gain.value = (this.masterStep / 20) ** 2 * 0.5; };
+    set();
+    return this.encoder("MASTER", -1, (d) => { this.masterStep = Math.max(0, Math.min(20, this.masterStep + d)); set(); });
+  }
+
+  encoder(name, role, local) {
+    const turn = (d) => { if (d) { if (local) { if (local(d) === false) return; } else this.send({ t: "enc", role, d }); knob.style.setProperty("--a", ((+knob.dataset.a || 0) + d * 15) + "deg"); knob.dataset.a = String((+knob.dataset.a || 0) + d * 15); } };
     const knob = h("div", { class: "knob", tabindex: "0", role: "slider", "aria-label": name + " encoder" });
     let y0 = null, acc = 0;
     knob.onpointerdown = (ev) => { knob.setPointerCapture(ev.pointerId); y0 = ev.clientY; acc = 0; ev.preventDefault(); };
@@ -157,7 +172,7 @@ export class Simulator {
       b.onkeydown = (ev) => { if (ev.key === " " || ev.key === "Enter") { ev.preventDefault(); turn(d); } };
       return b;
     };
-    return h("div", { class: "enc" + (role >= 3 ? " k" : "") }, knob, h("div", { class: "encrow" }, step(-1, "−"), step(1, "+")), h("span", { class: "encname" }, name));
+    return h("div", { class: "enc" }, knob, h("div", { class: "encrow" }, step(-1, "−"), step(1, "+")), h("span", { class: "encname" }, name));
   }
 
   key(k, cls, left, width) {
