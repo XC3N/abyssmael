@@ -1,12 +1,12 @@
 {
   "firmwares": [
     {
-      "id": "ambient",
+      "id": "abyssmael",
       "name": "Abyssmael",
-      "version": "0.3 (dev build)",
+      "version": "0.4 (dev build)",
       "product": "FM-1_5800",
-      "file": "ambient/ambient.fwsc",
-      "sha256": "4c53415bdbd459ec7362d5b47ada196feb706d70031e52d1eae804f31e4cfee7",
+      "file": "abyssmael/abyssmael.fwsc",
+      "sha256": "cdd2309f3d33bfa24f92b39290ddbb04c4c96edc8c978a3f3ee62a607f4611ac",
       "description": "A six-track generative ambient firmware. Each track has its own instrument (DRONE, PAD, BELL, PLUCK, TEXTURE), envelope, filter, two LFOs, a generator and an arpeggio. A global delay, a shimmer reverb and an AGE layer (tape hiss, vinyl crackle, wow and flutter). Four scenes: DEEP, GLASS, TIDE, VOID. Plays from power-on.",
       "controls": [
         [
@@ -76,9 +76,9 @@
       ],
       "license": "MPL-2.0",
       "credits": "Built on fm1-base by Charles Vestal and felucca-bsp by Leo Kuroshita.",
-      "preview": "ambient/preview.mp3",
+      "preview": "abyssmael/preview.mp3",
       "sim": {
-        "wasm": "ambient/sim.wasm",
+        "wasm": "abyssmael/sim.wasm",
         "panel": true,
         "keys": 27,
         "firstNote": 53,
