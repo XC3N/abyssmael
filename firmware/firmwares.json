@@ -103,12 +103,12 @@
         {
           "label": "test",
           "version": "0.5 (test)",
-          "commit": "65496c2",
+          "commit": "0591c28",
           "built": "2026-11-23",
           "file": "abyssmael/test/test/abyssmael.fwsc",
-          "sha256": "8d6c45a2b1b4159097ca147ef0aae72c61245e2329d89c7059f2ca184ac8ca4b",
+          "sha256": "c3fe1916432dc32d84919ebda439f27c47a1a1ecdb79214e4c691c0cf99609e9",
           "wasm": "abyssmael/test/test/sim.wasm",
-          "notes": "main plus the open PRs: sequencer (EUCL direction/drift, conditions, ARP FROM), compact UI with EUCL ring, FX clean-up and generative AGE noise"
+          "notes": "main plus the open PRs (#3, #2, #1), merged as branch test-build"
         }
       ]
     },
