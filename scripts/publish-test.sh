@@ -19,7 +19,7 @@ for ref in $(gh api 'repos/XC3N/abyssmael/pulls?state=open' --jq '.[].head.ref')
   echo "merged $ref"
 done
 COMMIT=$(git rev-parse --short HEAD)
-scripts/build-fw.sh all | tail -n 6
+BUILD_LABEL=test scripts/build-fw.sh all | tail -n 7
 T=/tmp/test-pub; rm -rf $T; mkdir -p $T
 cp build-out/abyssmael.fwsc $T/
 SIM_MEM=4194304 SIM_UNITS="core.c seq.c engines.c fx.c" sh scripts/build-sim.sh src firmware/abyssmael/sim/sim.c $T/sim.wasm
