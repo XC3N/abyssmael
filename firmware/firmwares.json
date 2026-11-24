@@ -176,11 +176,11 @@
         {
           "label": "profile-stress",
           "version": "profile",
-          "commit": "db7ea9a+39dd325",
+          "commit": "d071f80",
           "built": "2026-11-24",
           "file": "abyssmael/test/profile-stress/abyssmael.fwsc",
-          "sha256": "69052903f6c011b1e28b10ff90ba1cc80ad8389c47499d62d8eddd54cbc31e61",
-          "notes": "Core branch db7ea9a (stress test, 3.5 s gates) with PR #2 head 39dd325 (peaks held until K1): GLO page 4 (BUILD AND CPU), K2 right starts the fixed stress test, K2 left stops it, K1 clears the peaks. Read V, R and C about 30 s after starting. No browser player."
+          "sha256": "b31ab4229382ee96bcecb8e09d8a9ec8de9bd182e5736e29a820360e105a5d3c",
+          "notes": "Core branch d071f80 (voice cap 12, stress test, PR #2 merged in): GLO page 4 (BUILD AND CPU), K2 right starts the fixed stress test, K2 left stops it, K1 clears the peaks. Read V, R and C about 30 s after starting. No browser player."
         },
         {
           "label": "test",
