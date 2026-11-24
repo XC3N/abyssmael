@@ -157,7 +157,7 @@ static const uint8_t PG_REF[NPG][3][4] = {
     {{TP_LEVEL, TP_PAN, TP_DSEND, TP_RSEND}},
 };
 
-#define STORE_MAGIC 0x414D4234u          /* "AMB4" */
+#define STORE_MAGIC 0x414D4235u          /* "AMB5" */
 
 /* SEQ pages 2 and 3: the track's mode's four values */
 static const uint8_t MODE_REF[3][4] = {{TP_DENS, TP_RANGE, TP_STEPS, TP_DEJAVU},
