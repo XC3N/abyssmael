@@ -7,6 +7,10 @@
 
 #define APP_NAME "ABYSSMAEL"
 #define APP_SPLASH_RGB RGB(90, 150, 220)
+/* the splash's second line: the version. scripts/build-fw.sh rewrites AMB_BUILD_TAG to "v<src/VERSION> [label] <commit>";
+ * a plain build keeps this default. Bump src/VERSION for a release. */
+#define AMB_BUILD_TAG "v0.5"
+#define APP_TAGLINE AMB_BUILD_TAG
 #define APP_BLOCK 256u                   /* frames per audio block: 5.8 ms at 44.1 kHz */
 
 /* the store: the four scenes, and the panel calibration (the platform's) */
