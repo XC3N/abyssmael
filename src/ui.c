@@ -78,6 +78,19 @@ static uint32_t page_ref(uint32_t pg, uint32_t sub, uint32_t k)
 static const char *page_title(uint32_t pg, uint32_t sub)
 {
     static const char *const PT[3] = {"GENERATOR MOTIF", "EUCLID HITS", "STEP PATTERN"};
+    if (pg == PG_HOME && sub == 1u && sleep_left_s()) {   /* the timer running: the time left */
+        static char b[24];
+        uint32_t s = sleep_left_s();
+        char n[8];
+        b[0] = 0;
+        text_cat(b, "SLEEP IN ");
+        int_text((int32_t)(s / 60u), n);
+        text_cat(b, n);
+        text_cat(b, s % 60u < 10u ? ":0" : ":");
+        int_text((int32_t)(s % 60u), n);
+        text_cat(b, n);
+        return b;
+    }
     if (pg == PG_SEQ && sub == 1u)
         return SEQ_MODE[sc.tp[cur_trk][TP_SMODE]];
     if (pg == PG_SEQ && sub == 2u)
@@ -121,6 +134,14 @@ static void ref_text(uint32_t ref, char *t)
     case K_OCT: int_text((int32_t)v - 3, t); break;
     case K_NOTE: text_cat(t, NOTE_NAME[v % 12u]); break;
     case K_BPM: int_text((int32_t)v, t); text_cat(t, " BPM"); break;
+    case K_SLEEP:
+        if (!v)
+            text_cat(t, "OFF");
+        else {
+            int_text((int32_t)sleep_minutes(v), t);
+            text_cat(t, " MIN");
+        }
+        break;
     case K_CENT: int_text((int32_t)v - 50, t); text_cat(t, " CT"); break;
     default: int_text((int32_t)v, t); break;
     }
@@ -137,6 +158,10 @@ static void ref_turn(uint32_t ref, int32_t e)
     uint8_t *p = ref_ptr(ref);
     int32_t v = clamp((int32_t)*p + e * (int32_t)d->step, d->lo, d->hi);
     char t[16];
+    if (d->kind == K_SLEEP) {                /* OFF, then 5 to 120 minutes in fives (GP_SLEEP 1, 5, 9 ... 97) */
+        int32_t m = clamp((int32_t)sleep_minutes(*p) + e * 5, 0, 120);
+        v = m ? (m / 5 - 1) * 4 + 1 : 0;
+    }
     if (v == *p)
         return;
     *p = (uint8_t)v;

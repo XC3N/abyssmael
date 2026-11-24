@@ -233,3 +233,20 @@ expect playing 0
 tapkey b9
 wait 60
 expect dirty 0
+# SLEEP TIMER on HOME 2: K1 sets the minutes (OFF, 5, 10 ...)
+tap HOME
+wait 40
+tap HOME
+wait 40
+expect page 1
+expect sleep_min 0
+spin K1 1
+wait 40
+expect sleep_min 5
+spin K1 2
+wait 40
+expect sleep_min 15
+shot sleep.png
+spin K1 -9
+wait 40
+expect sleep_min 0

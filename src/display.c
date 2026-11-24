@@ -210,7 +210,7 @@ static void draw(void)
             cv_rect(x, 136, 54, 3, C_DIM);
             cv_rect(x, 136, (int32_t)(ref_frac(ref) * 54u / 200u), 3, TCOL[cur_trk]);
         }
-    } else if (pg == PG_HOME) {
+    } else if (pg == PG_HOME && sub == 0u) {
         for (k = 0; k < NTRK; k++) {
             int32_t y = (int32_t)k * 16;
             uint32_t w = sc.tp[k][TP_LEVEL];
@@ -299,7 +299,24 @@ static void draw(void)
     text_cat(t, " ");
     text_cat(t, SCALE_NAME[sc.gp[GP_SCALE]]);
     cv_text(232 - text_w(&FONT_XS, t), 2, &FONT_XS, t, C_HI);
+#ifdef AMB_PROFILE
+    {   /* S sequencer, B voice setup, V voices, F effects: % of the block time (a profile build) */
+        static const char L[4] = {'S', 'B', 'V', 'F'};
+        uint32_t q;
+        char pr[40];
+        pr[0] = 0;
+        for (q = 0; q < 4u; q++) {
+            char c[8], l[2] = {L[q], 0};
+            int_text((int32_t)prof_pct[q], c);
+            text_cat(pr, l);
+            text_cat(pr, c);
+            text_cat(pr, " ");
+        }
+        cv_text(8, 18, &FONT_XS, pr, C_GRAY);
+    }
+#else
     cv_text(8, 18, &FONT_XS, "KEYS ARE CHROMATIC. SEL: SCALE", C_DIM);
+#endif
     cv_blit(0, 206);
 }
 

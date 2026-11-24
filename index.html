@@ -117,6 +117,9 @@ a { color: var(--accent); }
   .octs .pbtn { padding: 12px 0; }
 }
 @media (max-width: 380px) { .grpbody { gap: 2px; } .knob { width: 46px; height: 46px; } .kstep { min-width: 28px; } }
+.picker { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 6px 0 8px; }
+.seg { background: transparent; color: var(--ink); border: 1px solid var(--line); padding: 5px 14px; border-radius: 99px; font-weight: 600; }
+.seg.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 </style>
 </head>
@@ -128,6 +131,9 @@ a { color: var(--accent); }
   <div id="unsupported" class="banner bad hidden">
     <strong>This browser can't talk to MIDI devices.</strong> Flashing works in Chrome, Edge or Opera on a computer, or Chrome on Android with a USB-OTG cable. iPhones and iPads (every iOS browser), Firefox and Safari don't offer Web MIDI. You can still use “Try in browser” below. The page also has to be served over https:// or from localhost, not opened as a file.
   </div>
+
+  <h2>Browser version</h2>
+  <div id="trylist"></div>
 
   <h2>1. Connect your FM-1</h2>
   <div class="panel">

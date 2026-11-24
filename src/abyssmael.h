@@ -18,6 +18,8 @@
 #define NTRK 6u
 #define VPT 4u                           /* voices per track */
 #define NVOICE (NTRK * VPT)
+/* Profile build: shows each stage's share of the block time in the footer (see core.c). On only in profile builds. */
+#define AMB_PROFILE 1
 #define VOICE_CAP 16u                    /* sounding at once, all tracks: the CPU's budget */
 
 /* ------------------------------------------------------------------ tables --- */
@@ -77,7 +79,7 @@ enum {   /* the scene's global values */
     GP_KEY, GP_SCALE, GP_TEMPO, GP_SWING, GP_DRIFT, GP_MOVE, GP_TUNE, GP_THEME,
     GP_HISS, GP_CRACKLE, GP_WOW, GP_AGE,
     GP_DTIME, GP_DFB, GP_DTONE, GP_DMIX, GP_RSIZE, GP_RDAMP, GP_RSHIM, GP_RMIX,
-    GP_DARK, GP_ACT, GP_SPACE, NGP
+    GP_DARK, GP_ACT, GP_SPACE, GP_SLEEP, NGP
 };
 typedef struct {
     uint8_t gp[NGP];
@@ -88,7 +90,7 @@ typedef struct {
     uint8_t cd[NTRK][16];                /* the condition of each EUCLID hit or STEP step (C_...) */
 } scene_t;
 
-enum { K_PCT, K_ENUM, K_OCT, K_NOTE, K_BPM, K_CENT, K_INSTP };
+enum { K_PCT, K_ENUM, K_OCT, K_NOTE, K_BPM, K_CENT, K_INSTP, K_SLEEP };
 typedef struct {
     const char *name;
     uint8_t lo, hi, kind, step;
@@ -128,6 +130,7 @@ static const pdesc_t GPD[NGP] = {
     {"DELAY MIX", 0, 100, K_PCT, 2, 0}, {"SIZE", 0, 100, K_PCT, 2, 0}, {"DAMPING", 0, 100, K_PCT, 2, 0},
     {"SHIMMER", 0, 100, K_PCT, 2, 0}, {"REVERB MIX", 0, 100, K_PCT, 2, 0},
     {"DARK", 0, 100, K_PCT, 2, 0}, {"ACTIVITY", 0, 100, K_PCT, 2, 0}, {"SPACE", 0, 100, K_PCT, 2, 0},
+    {"SLEEP TIMER", 0, 100, K_SLEEP, 1, 0},
 };
 
 /* the pages: button, its pages, four values each (a track value, or G(...) for a global one) */
@@ -135,16 +138,16 @@ static const pdesc_t GPD[NGP] = {
 enum { PG_HOME, PG_EDIT, PG_ENV, PG_LFO, PG_SEQ, PG_ARP, PG_FX, PG_GLO, PG_MIX, PG_SCALE, NPG };
 static const char *const PG_NAME[NPG] = {"HOME", "EDIT", "ENV", "LFO", "SEQ", "ARP", "FX", "GLO", "MIX", "SCALE"};
 static const uint8_t PG_BTN[NPG] = {B_HOME, B_EDIT, B_ENV, B_LFO, B_SEQ, B_ARP, B_FX, B_GLO, 0xFFu, B_SEL};   /* MIX: a black key */
-static const uint8_t PG_N[NPG] = {1, 2, 2, 2, 3, 2, 3, 3, 1, 1};
+static const uint8_t PG_N[NPG] = {2, 2, 2, 2, 3, 2, 3, 3, 1, 1};
 static const char *const PG_TITLE[NPG][3] = {
-    {"HOME"}, {"SOUND A", "SOUND B"}, {"AMP ENVELOPE", "FILTER"}, {"LFO 1", "LFO 2"}, {"SEQUENCER", "", "PATTERN"},
+    {"HOME", "SESSION"}, {"SOUND A", "SOUND B"}, {"AMP ENVELOPE", "FILTER"}, {"LFO 1", "LFO 2"}, {"SEQUENCER", "", "PATTERN"},
     {"ARPEGGIO", "ARP SOURCE"}, {"TRACK MIX", "DELAY", "SHIMMER REVERB"}, {"KEY AND TIME", "DRIFT", "AGE"}, {"MUTE AND SOLO"}, {"KEY, SCALE, KEYS"}};
 /* the pages' short names, for the black keys */
 static const char *const PG_SHORT[NPG][3] = {
     {""}, {"SND A", "SND B"}, {"AMP", "FILT"}, {"LFO1", "LFO2"}, {"SEQ", "", "PATT"}, {"ARP", "SRC"}, {"MIX", "DELAY", "VERB"},
     {"KEY", "DRIFT", "AGE"}, {""}, {"SCALE"}};
 static const uint8_t PG_REF[NPG][3][4] = {
-    {{G(GP_DARK), G(GP_ACT), G(GP_SPACE), TP_LEVEL}},
+    {{G(GP_DARK), G(GP_ACT), G(GP_SPACE), TP_LEVEL}, {G(GP_SLEEP), G(GP_TEMPO), G(GP_SWING), G(GP_DRIFT)}},
     {{TP_P0, TP_P1, TP_P2, TP_P3}, {TP_P4, TP_P5, TP_P6, TP_P7}},
     {{TP_ATK, TP_DEC, TP_SUS, TP_REL}, {TP_CUT, TP_RES, TP_FENV, TP_KEYT}},
     {{TP_L1RATE, TP_L1DEP, TP_L1SHP, TP_L1TGT}, {TP_L2RATE, TP_L2DEP, TP_L2SHP, TP_L2TGT}},
@@ -158,7 +161,7 @@ static const uint8_t PG_REF[NPG][3][4] = {
     {{G(GP_KEY), G(GP_SCALE), 0x60, 0x61}},   /* SCALE: 0x60 scale mode on/off, 0x61 the keys' octave (the UI's own) */
 };
 
-#define STORE_MAGIC 0x414D4234u          /* "AMB4" */
+#define STORE_MAGIC 0x414D4234u          /* "AMB4" (GP_SLEEP added to the scene) */
 
 /* SEQ pages 2 and 3: the track's mode's four values */
 static const uint8_t MODE_REF[3][4] = {{TP_DENS, TP_RANGE, TP_STEPS, TP_DEJAVU},
@@ -189,6 +192,17 @@ extern scene_t sc;
 extern volatile uint8_t playing, cur_trk;
 extern volatile uint32_t notes_played, drift_count;
 extern volatile uint8_t trk_active[NTRK];
+/* SLEEP TIMER (core.c). GP_SLEEP is 0 (OFF) or 1..100: the minutes are sleep_minutes(), 5 to 120 in steps of 5. Setting it
+ * starts the countdown; the last SLEEP_FADE_S seconds fade the sound out; at zero the engine stops and amb_asleep is 1:
+ * the render outputs silence and the main loop (app.c) blanks the screen and the lights until a key or button is pressed.
+ * Waking, the main loop sets GP_SLEEP to 0. */
+#define SLEEP_FADE_S 60u
+extern volatile uint8_t amb_asleep;
+uint32_t sleep_minutes(uint32_t gp_sleep);   /* 0 .. 120 */
+uint32_t sleep_left_s(void);                 /* seconds to go (0 when off) */
+#ifdef AMB_PROFILE
+extern volatile uint8_t prof_pct[4];     /* seq, engines_block, engines_run, fx: % of the block time (profile builds only) */
+#endif
 extern voice_t vc[NVOICE];
 extern motif_t mo[NTRK];
 extern uint8_t seq_pos[NTRK], seq_cur[NTRK];
