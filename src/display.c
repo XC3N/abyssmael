@@ -37,7 +37,23 @@ static void draw(void)
             int_text((int32_t)sc.gp[GP_TEMPO], c);
             text_cat(t, "  ");
             text_cat(t, c);
+#ifdef AMB_PROFILE
+            {   /* a profile build: S sequencer, B voice setup, V voices, F effects (% of the block time), then C the total */
+                static const char L[4] = {'S', 'B', 'V', 'F'};
+                uint32_t q;
+                text_cat(t, " ");
+                for (q = 0; q < 4u; q++) {
+                    char l[2] = {L[q], 0}, d[8];
+                    int_text((int32_t)prof_pct[q], d);
+                    text_cat(t, l);
+                    text_cat(t, d);
+                    text_cat(t, " ");
+                }
+                text_cat(t, "C");
+            }
+#else
             text_cat(t, playing ? " BPM  CPU " : " STOP  CPU ");
+#endif
             int_text((int32_t)plat_cpu_pct(), c);
             text_cat(t, c);
             text_cat(t, "%");
