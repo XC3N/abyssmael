@@ -111,16 +111,6 @@
           "notes": "PR #2 alone (UI, SCALE page, HOME page 2 SESSION with the sleep timer; includes PR #1). Does not include PR #3 or the newest PR #4: those conflict with it, see the PR threads."
         },
         {
-          "label": "test",
-          "version": "0.5 (test)",
-          "commit": "946b862",
-          "built": "2026-11-24",
-          "file": "abyssmael/test/test/abyssmael.fwsc",
-          "sha256": "caa107d42733eb30a79e873bb0fab513dd9db1aee5b91cc7b9a1df7dac426964",
-          "wasm": "abyssmael/test/test/sim.wasm",
-          "notes": "main plus the open PRs (#3, #2, #1), merged as branch test-build"
-        },
-        {
           "label": "profile-main",
           "version": "profile",
           "commit": "c3f9f55",
@@ -137,6 +127,16 @@
           "file": "abyssmael/test/profile-fx/abyssmael.fwsc",
           "sha256": "6fa5b90b1b1aba0744c6b55f37ed3360a145a8d7bddd7464cac4884c3ce634f7",
           "notes": "profile-main's readout (header: S B V F = sequencer, voice setup, voices, effects as % of block time, then C total) with the FX PR #3 head 5fae81c (cheaper effects, idle bypass). Compare F with profile-main. No browser player."
+        },
+        {
+          "label": "test",
+          "version": "0.5 (test)",
+          "commit": "0b572c3",
+          "built": "2026-11-24",
+          "file": "abyssmael/test/test/abyssmael.fwsc",
+          "sha256": "9259691e2c38d7d2eff3fd4bc05222ae4f964d6d43375586cd5b3fa2e64c9766",
+          "wasm": "abyssmael/test/test/sim.wasm",
+          "notes": "main plus the open PRs (#3, #2, #1), merged as branch test-build"
         }
       ]
     },
