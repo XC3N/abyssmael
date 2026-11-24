@@ -211,7 +211,7 @@ static void draw(void)
             cv_rect(x, 136, (int32_t)(ref_frac(ref) * 54u / 200u), 3, TCOL[cur_trk]);
         }
     } else if (pg == PG_GLO && sub == 3u) {  /* BUILD AND CPU: the biggest type, a line each: now (peak); the build at the foot */
-        static const char *const RL[6] = {"SEQ", "SETUP", "VOICES", "FX", "TOTAL", "AVG"};
+        static const char *const RL[6] = {"SEQ", "SETUP", "VOICES", "FX", "RENDER", "TOTAL"};
         uint32_t cpu = plat_cpu_pct(), v[6], pk[6];
         if (now - ui.cpu_at > 5000u)            /* the page was not on screen: start again */
             ui.cpu_max = 0, ui.cpu_avg = (uint8_t)cpu;
@@ -219,27 +219,32 @@ static void draw(void)
         if (cpu > ui.cpu_max)
             ui.cpu_max = (uint8_t)cpu;
         ui.cpu_avg = (uint8_t)((ui.cpu_avg * 7u + cpu + 4u) / 8u);   /* drawn about twice a second: some 4 s */
-        for (k = 0; k < 4u; k++)
+        for (k = 0; k < 5u; k++)                /* prof_*: S, B, V, F, then R, the whole render call */
             v[k] = prof_pct[k], pk[k] = prof_max[k];
-        v[4] = cpu, pk[4] = ui.cpu_max;
-        v[5] = ui.cpu_avg, pk[5] = 0;
+        v[5] = cpu, pk[5] = ui.cpu_max;          /* C - R is the rest of the audio interrupt */
         for (k = 0; k < 6u; k++) {
             char c[8];
             int32_t y = (int32_t)k * 23, x;
             t[0] = 0;
             int_text((int32_t)v[k], c);
             text_cat(t, c);
-            if (k < 5u) {
-                text_cat(t, " (");
-                int_text((int32_t)pk[k], c);
-                text_cat(t, c);
-                text_cat(t, ")");
-            }
+            text_cat(t, " (");
+            int_text((int32_t)pk[k], c);
+            text_cat(t, c);
+            text_cat(t, ")");
             x = 232 - text_w(&FONT_M, t);
             cv_text(8, y, &FONT_M, RL[k], k >= 4u ? C_WHITE : C_GRAY);
-            cv_text(x, y, &FONT_M, t, k == 4u && cpu > 80u ? C_AMB : C_HI);
+            cv_text(x, y, &FONT_M, t, k == 5u && cpu > 80u ? C_AMB : C_HI);
         }
-        cv_text(8, 142, &FONT_S, APP_TAGLINE, C_GRAY);
+        {
+            char c[8];
+            t[0] = 0;
+            text_cat(t, APP_TAGLINE);
+            text_cat(t, "  AVG ");
+            int_text((int32_t)ui.cpu_avg, c);
+            text_cat(t, c);
+            cv_text(8, 142, &FONT_S, t, C_GRAY);
+        }
     } else if (pg == PG_HOME && sub == 0u) {
         for (k = 0; k < NTRK; k++) {
             int32_t y = (int32_t)k * 16;
