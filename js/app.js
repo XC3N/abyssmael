@@ -26,7 +26,7 @@ async function connect() {
     let perm = "";
     try { perm = (await navigator.permissions.query({ name: "midi", sysex: true })).state; } catch (_) {}
     setDevice("bad", `MIDI access failed: ${e.name}${e.message ? " - " + e.message : ""}${perm ? ` (permission: ${perm})` : ""}. ` +
-      (e.name === "InvalidStateError" ? "Windows' MIDI driver failed to start: close every Chrome window and any app using MIDI, unplug and replug the FM-1, then reopen. Still failing: try Edge, or restart the computer." : perm === "denied" ? "This site is blocked from MIDI in the browser: click the icon left of the address bar, Site settings, set MIDI device control (and 'MIDI devices with SysEx') to Allow, then reload." : "Allow MIDI with system-exclusive messages for this site, close other MIDI apps, and reload."));
+      (e.name === "InvalidStateError" ? (/Android/i.test(navigator.userAgent) ? "Android's MIDI service failed to start: force-stop Chrome (Settings, Apps, Chrome, Force stop), close any other app that uses MIDI or USB audio, unplug and replug the FM-1 (accept the USB prompt), then reopen. Still failing: restart the phone." : "The OS MIDI driver failed to start: close every browser window and any app using MIDI, unplug and replug the FM-1, then reopen. Still failing: restart the computer.") : perm === "denied" ? "This site is blocked from MIDI in the browser: click the icon left of the address bar, Site settings, set MIDI device control (and 'MIDI devices with SysEx') to Allow, then reload." : "Allow MIDI with system-exclusive messages for this site, close other MIDI apps, and reload."));
     return;
   }
   state.updater = new Updater(state.access);
