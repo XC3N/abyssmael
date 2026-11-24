@@ -109,6 +109,16 @@
           "sha256": "c3fe1916432dc32d84919ebda439f27c47a1a1ecdb79214e4c691c0cf99609e9",
           "wasm": "abyssmael/test/test/sim.wasm",
           "notes": "main plus the open PRs (#3, #2, #1), merged as branch test-build"
+        },
+        {
+          "label": "pr2",
+          "version": "0.5 (PR #2)",
+          "commit": "f0a00aa",
+          "built": "2026-11-24",
+          "file": "abyssmael/test/pr2/abyssmael.fwsc",
+          "sha256": "1f02dc64c325bf7176005da6d4cc32b093f6237bd1efc383d396e7b525d28db6",
+          "wasm": "abyssmael/test/pr2/sim.wasm",
+          "notes": "PR #2 alone (UI, SCALE page, HOME page 2 SESSION with the sleep timer; includes PR #1). Does not include PR #3 or the newest PR #4: those conflict with it, see the PR threads."
         }
       ]
     },
