@@ -2,6 +2,7 @@
 # Build and test the Abyssmael firmware from src/ against a local fm1-base checkout.
 # usage: scripts/build-fw.sh [host|device|all]   (default all)
 #   FM1_BASE   path of the fm1-base checkout (default ~/src/fm1-base; see BUILD.md to set it up)
+#   BUILD_LABEL  optional word for the splash (test, profile ...); the splash tagline reads "v<src/VERSION> [label] <git sha>[+]"
 #   OUT        where the results go (default build-out/ in this repo; ignored by git)
 # host   : builds the host simulator, runs src/tests/basic.txt (the expect checks), writes screens and wavs to $OUT/host
 # device : builds the device package, writes $OUT/abyssmael.fwsc and prints its sha256
@@ -14,6 +15,13 @@ OUT=${OUT:-$REPO/build-out}
 # a throwaway app dir inside fm1-base holding a copy of src/ (fm1-base builds apps from its own tree)
 APP=abyssmael_build
 rm -rf "$FM1_BASE/$APP"; mkdir -p "$FM1_BASE/$APP"; cp -r "$REPO/src/." "$FM1_BASE/$APP/"
+# the version on the splash screen (APP_TAGLINE in app.h): src/VERSION, the label if any, this checkout's commit (+ when dirty)
+VER=$(cat "$REPO/src/VERSION" 2>/dev/null || echo dev)
+SHA=$(git -C "$REPO" rev-parse --short HEAD 2>/dev/null || echo local)
+[ -n "$(git -C "$REPO" status --porcelain src 2>/dev/null)" ] && SHA="$SHA+"
+TAG="v$VER${BUILD_LABEL:+ $BUILD_LABEL} $SHA"
+sed -i "s|^#define AMB_BUILD_TAG .*|#define AMB_BUILD_TAG \"$TAG\"|" "$FM1_BASE/$APP/app.h"
+echo "splash: $TAG"
 cd "$FM1_BASE"
 mkdir -p "$OUT"
 if [ "$MODE" = host ] || [ "$MODE" = all ]; then
