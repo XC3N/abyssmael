@@ -188,7 +188,7 @@ uint32_t sleep_minutes(uint32_t gp_sleep);   /* 0 .. 120 */
 uint32_t sleep_left_s(void);                 /* seconds to go (0 when off) */
 /* the CPU share of each render stage, in % of the block time: seq, engines_block, engines_run (both cores), fx. prof_pct is
  * smoothed, prof_max a peak that decays in a few seconds. The total is plat_cpu_pct(). (core.c) */
-extern volatile uint8_t prof_pct[4], prof_max[4];
+extern volatile uint8_t prof_pct[5], prof_max[5];   /* [4]: the whole app_render call (R), so C - R is the rest of the audio interrupt */
 extern voice_t vc[NVOICE];
 extern motif_t mo[NTRK];
 extern uint8_t seq_pos[NTRK], seq_cur[NTRK];
