@@ -93,6 +93,16 @@ void voice_release_note(uint32_t t, int32_t note)
             vc[i].stage = 4;
 }
 
+/* tanh as a [5/4] Pade, one divide and no exp2: the input is held to +-3.3 where the fit is at 0.9967 against tanh's 0.9973
+ * (error under 0.002 everywhere, far less below 2). Used by the drone's saturation instead of fm_tanhf (exp2 and a divide). */
+static inline __attribute__((always_inline)) float am_tanh(float x)
+{
+    float z;
+    x = x > 3.3f ? 3.3f : (x < -3.3f ? -3.3f : x);
+    z = x * x;
+    return x * (945.0f + z * (105.0f + z)) / (945.0f + z * (420.0f + 15.0f * z));
+}
+
 /* one sample of a voice's instrument, before the filter */
 static inline __attribute__((always_inline)) float voice_osc(voice_t *v, const tblk_t *b, float inc, const uint32_t inst)
 {
@@ -115,7 +125,7 @@ static inline __attribute__((always_inline)) float voice_osc(voice_t *v, const t
             + p[3] * 1.4f * fm_sin_turns(v->ph[3]);
         v->x1 += (am_rnds() - v->x1) * 0.02f;          /* noise, softened */
         o += p[7] * 1.5f * v->x1;
-        o = fm_tanhf(o * (0.35f + 1.2f * p[5])) * 1.3f;
+        o = am_tanh(o * (0.35f + 1.2f * p[5])) * 1.3f;
         o *= 1.0f - p[4] * 0.6f * (0.5f + 0.5f * fm_sin_turns(v->x3));
         break;
     }
