@@ -182,6 +182,15 @@
           "file": "abyssmael/test/profile-drone/abyssmael.fwsc",
           "sha256": "0291bee3993545f03c07540446f5167d190eafa6f144377cb22e61db15acf716",
           "notes": "PR #2 head (UI, GLO page 4 BUILD AND CPU) plus the core branch df8721b (drone saturation with a cheaper tanh). The CPU readout is on GLO page 4. No browser player."
+        },
+        {
+          "label": "profile-stress",
+          "version": "profile",
+          "commit": "463ec54",
+          "built": "2026-11-24",
+          "file": "abyssmael/test/profile-stress/abyssmael.fwsc",
+          "sha256": "9cdac9e598d9bb2b9ec491b846864f4d782132790fbf227e9c26fc027652f9d7",
+          "notes": "Core branch 463ec54 (includes PR #2): GLO page 4 (BUILD AND CPU), K2 right starts the fixed stress test (factory scene with all instruments and effects, the same chords every 2 s), K2 left stops it. Read V, R and C about 30 s after starting. No browser player."
         }
       ]
     },
