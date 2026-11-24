@@ -129,16 +129,6 @@
           "notes": "profile-main's readout (header: S B V F = sequencer, voice setup, voices, effects as % of block time, then C total) with the FX PR #3 head 5fae81c (cheaper effects, idle bypass). Compare F with profile-main. No browser player."
         },
         {
-          "label": "test",
-          "version": "0.5 (test)",
-          "commit": "b86a2d7",
-          "built": "2026-11-24",
-          "file": "abyssmael/test/test/abyssmael.fwsc",
-          "sha256": "47e8d213748fc345faa9277d5cca0cb67d8b85671aea785bac1e81aead3c43c2",
-          "wasm": "abyssmael/test/test/sim.wasm",
-          "notes": "main plus the open PRs (#3, #2, #1), merged as branch test-build"
-        },
-        {
           "label": "profile-fx3",
           "version": "profile",
           "commit": "9e33213+02a4615",
@@ -173,6 +163,16 @@
           "file": "abyssmael/test/profile-fx5-norev/abyssmael.fwsc",
           "sha256": "a870793929e505ee17b0a7cefd16eaf3d17a6db060d34697c0b91c4438de6ef0",
           "notes": "as profile-fx5 with the reverb skipped (FX_OFF_REVERB); measuring only. CPU readout on GLO page 4 (BUILD AND CPU). No browser player."
+        },
+        {
+          "label": "test",
+          "version": "0.5 (test)",
+          "commit": "08092cf",
+          "built": "2026-11-24",
+          "file": "abyssmael/test/test/abyssmael.fwsc",
+          "sha256": "95b8ecd6df04a0cd5c2cad9185d129268a60b4b51048e73b44b7f1000533b2b9",
+          "wasm": "abyssmael/test/test/sim.wasm",
+          "notes": "main plus the open PRs (#3, #2, #1), merged as branch test-build"
         }
       ]
     },
