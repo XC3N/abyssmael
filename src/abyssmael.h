@@ -18,6 +18,8 @@
 #define NTRK 6u
 #define VPT 4u                           /* voices per track */
 #define NVOICE (NTRK * VPT)
+/* Profile build: shows each stage's share of the block time in the footer (see core.c). On only in profile builds. */
+#define AMB_PROFILE 1
 #define VOICE_CAP 16u                    /* sounding at once, all tracks: the CPU's budget */
 
 /* ------------------------------------------------------------------ tables --- */
@@ -147,7 +149,7 @@ static const uint8_t PG_REF[NPG][3][4] = {
     {{TP_LEVEL, TP_PAN, TP_DSEND, TP_RSEND}},
 };
 
-#define STORE_MAGIC 0x414D4235u          /* "AMB5" (GP_SLEEP added to the scene; AMB4 is the sequencer PR's) */
+#define STORE_MAGIC 0x414D4234u          /* "AMB4" (GP_SLEEP added to the scene) */
 
 /* SEQ pages 2 and 3: the track's mode's four values */
 static const uint8_t MODE_REF[3][4] = {{TP_DENS, TP_RANGE, TP_STEPS, TP_DEJAVU},
@@ -186,6 +188,9 @@ extern volatile uint8_t trk_active[NTRK];
 extern volatile uint8_t amb_asleep;
 uint32_t sleep_minutes(uint32_t gp_sleep);   /* 0 .. 120 */
 uint32_t sleep_left_s(void);                 /* seconds to go (0 when off) */
+#ifdef AMB_PROFILE
+extern volatile uint8_t prof_pct[4];     /* seq, engines_block, engines_run, fx: % of the block time (profile builds only) */
+#endif
 extern voice_t vc[NVOICE];
 extern motif_t mo[NTRK];
 extern uint8_t seq_pos[NTRK], seq_cur[NTRK];
