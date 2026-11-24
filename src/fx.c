@@ -18,18 +18,21 @@ static int16_t dl_l[DL_LEN] PLAT_POOL, dl_r[DL_LEN] PLAT_POOL;
 static uint32_t dl_w;
 static float dl_t, dl_lpl, dl_lpr, dl_hl, dl_hr;   /* dl_t: the time in ticks (22.05 kHz) */
 
-#define RV_LEN 2048u                     /* the reverb: four lines and a pitch shifter for the shimmer, at half rate */
+#define RV_LEN 1024u                     /* the reverb: four lines and a pitch shifter for the shimmer, at quarter rate */
 static const float RV_BASE[4] = {1557.0f, 1617.0f, 1491.0f, 1422.0f};
 static int16_t rv_line[4][RV_LEN] PLAT_POOL;
 static float rv_lp[4];
 static uint32_t rv_w;
-#define AP_LEN 512u
+#define AP_LEN 256u
 static int16_t rv_ap[2][AP_LEN] PLAT_POOL;
-static const uint32_t AP_D[2] = {174u, 442u};   /* in reverb ticks (22.05 kHz) */
-#define PS_LEN 2048u
+static const uint32_t AP_D[2] = {87u, 221u};   /* in reverb ticks (11.025 kHz) */
+#define PS_LEN 1024u
 static int16_t ps_buf[PS_LEN] PLAT_POOL;
-static uint32_t ps_w, ps_phq;            /* ps_phq: the shimmer's window phase, 2^32 = one window of 1024 ticks */
-static float rs_hold, ro_l, ro_r;         /* the reverb's half-rate input pair and its last output */
+static uint32_t ps_w, ps_phq;            /* ps_phq: the shimmer's window phase, 2^32 = one window of 512 ticks */
+/* the reverb's quarter-rate input (low-passed, summed) and output (each group of four samples runs from the last
+ * tick to the new one, then two one-poles) */
+static float rs_flt, rs_acc, gl0, gl1, gr0, gr1, olp[4];
+static const float T4[4] = {0.25f, 0.5f, 0.75f, 1.0f};
 static float rv_mod, ps_hp, rv_dc[4];
 
 #define WOW_LEN 2048u                    /* the master's wow and flutter */
@@ -101,7 +104,7 @@ static PLAT_RAM_CODE void fx_audio(int32_t *lr, uint32_t n, uint32_t master_q12)
     /* delay, reverb and age settings, once a block */
     float dl_target = (0.02f + 0.72f * pct(sc.gp[GP_DTIME])) * SR, dfb = pct(sc.gp[GP_DFB]) * 0.92f;
     float dtone = 0.08f + 0.85f * pct(sc.gp[GP_DTONE]), dtone2, dmix = pct(sc.gp[GP_DMIX]);
-    float rsize = pct(sc.gp[GP_RSIZE]), rg = 0.55f + 0.44f * rsize, rdamp = 0.9f - 0.8f * pct(sc.gp[GP_RDAMP]), rdamp2;
+    float rsize = pct(sc.gp[GP_RSIZE]), rg = 0.55f + 0.44f * rsize, rdamp = 0.9f - 0.8f * pct(sc.gp[GP_RDAMP]), rdamp4;
     float rshim = pct(sc.gp[GP_RSHIM]), rmix = pct(sc.gp[GP_RMIX]);
     float rlen[4];
     float hiss = pct(sc.gp[GP_HISS]), crack = pct(sc.gp[GP_CRACKLE]), wow = pct(sc.gp[GP_WOW]), age = pct(sc.gp[GP_AGE]);
@@ -112,9 +115,12 @@ static PLAT_RAM_CODE void fx_audio(int32_t *lr, uint32_t n, uint32_t master_q12)
     uint32_t wow_on = wow > 0.0f && !idle;
     dtone2 = dtone * (2.0f - dtone);          /* the delay's tone at half rate */
     dl_target *= 0.5f;                        /* in ticks */
-    rdamp2 = rdamp * (2.0f - rdamp);          /* the same damping at half rate: two one-poles in one */
+    {                                         /* the same damping at quarter rate: four one-poles in one */
+        float u = (1.0f - rdamp) * (1.0f - rdamp);
+        rdamp4 = 1.0f - u * u;
+    }
     for (k = 0; k < 4u; k++)
-        rlen[k] = RV_BASE[k] * 0.5f * (0.45f + 2.0f * rsize);   /* in ticks */
+        rlen[k] = RV_BASE[k] * 0.25f * (0.45f + 2.0f * rsize);   /* in ticks */
     /* the effects' slow modulation, once a block (and moved smoothly across it) */
     {
         float m0;
@@ -124,7 +130,7 @@ static PLAT_RAM_CODE void fx_audio(int32_t *lr, uint32_t n, uint32_t master_q12)
             rv_mod -= 1.0f;
         for (k = 0; k < 4u; k++) {
             float d = (k & 1u ? 6.0f : -6.0f) * fm_sin_turns(rv_mod + 0.25f * (float)k);
-            rd_stepq[k] = (int32_t)((float)((int32_t)((rlen[k] + 0.5f * d) * 65536.0f) - rd_q[k]) * (2.0f * inv_n));   /* per tick: n / 2 ticks in a block */
+            rd_stepq[k] = (int32_t)((float)((int32_t)((rlen[k] + 0.25f * d) * 65536.0f) - rd_q[k]) * (4.0f * inv_n));   /* per tick: n / 4 ticks in a block */
         }
         wow_ph += 0.45f / SR * (float)n;
         if (wow_ph >= 1.0f) {
@@ -235,17 +241,26 @@ static PLAT_RAM_CODE void fx_audio(int32_t *lr, uint32_t n, uint32_t master_q12)
             rs += (dyl + dyr) * 0.25f * dmix;
 #endif
 #ifndef FX_OFF_REVERB
-            /* the reverb runs at half rate (22.05 kHz): a tick every second sample, fed the mean of the pair, its
-             * output linearly interpolated back up. Two all-passes into four lines, mixed (Hadamard), damped; the
+            /* the reverb runs at quarter rate (11.025 kHz): the input is low-passed and summed over four samples, a
+             * tick is done on the fourth, and the output is linearly interpolated over the next four and low-passed
+             * again (the reverb is dark anyway). Two all-passes into four lines, mixed (Hadamard), damped; the
              * shimmer is an octave up pitch shifter (two crossfaded taps) fed back into the lines */
-            if (i & 1u) {
-                rs_hold = rs;
-                rout_l = ro_l;
-                rout_r = ro_r;
-            } else {
+            {
+                float t = T4[i & 3u];
+                rs_flt += (rs - rs_flt) * 0.5f;
+                rs_acc += rs_flt;
+                olp[0] += ((gl0 + (gl1 - gl0) * t) - olp[0]) * 0.55f;
+                olp[1] += (olp[0] - olp[1]) * 0.55f;
+                olp[2] += ((gr0 + (gr1 - gr0) * t) - olp[2]) * 0.55f;
+                olp[3] += (olp[2] - olp[3]) * 0.55f;
+                rout_l = olp[1];
+                rout_r = olp[3];
+            }
+            if ((i & 3u) == 3u) {
                 float a[4], h[4], shim;
                 uint32_t rw = rv_w << 16;
-                rin = (rs_hold + rs) * 0.25f;
+                rin = rs_acc * 0.125f;
+                rs_acc = 0.0f;
                 for (k = 0; k < 2u; k++) {
                     uint32_t ri = (rv_w - AP_D[k]) & (AP_LEN - 1u);
                     float dly = rv_ap[k][ri] * (1.0f / 8192.0f), y = dly - 0.6f * rin;
@@ -255,25 +270,27 @@ static PLAT_RAM_CODE void fx_audio(int32_t *lr, uint32_t n, uint32_t master_q12)
                 for (k = 0; k < 4u; k++) {
                     rd_q[k] += rd_stepq[k];
                     a[k] = ip(rv_line[k], rw - (uint32_t)rd_q[k], RV_LEN - 1u);
-                    rv_lp[k] += (a[k] - rv_lp[k]) * rdamp2;
-                    rv_dc[k] += (rv_lp[k] - rv_dc[k]) * 0.0014f;   /* a DC blocker in each line (about 5 Hz) */
+                    rv_lp[k] += (a[k] - rv_lp[k]) * rdamp4;
+                    rv_dc[k] += (rv_lp[k] - rv_dc[k]) * 0.0028f;   /* a DC blocker in each line (about 5 Hz) */
                     a[k] = rv_lp[k] - rv_dc[k];
                 }
                 h[0] = (a[0] + a[1] + a[2] + a[3]) * 0.5f;
                 h[1] = (a[0] - a[1] + a[2] - a[3]) * 0.5f;
                 h[2] = (a[0] + a[1] - a[2] - a[3]) * 0.5f;
                 h[3] = (a[0] - a[1] - a[2] + a[3]) * 0.5f;
-                rout_l = a[0] + a[2];
-                rout_r = a[1] + a[3];
-                s = fabs_(rout_l) + fabs_(rout_r);
+                gl0 = gl1;
+                gr0 = gr1;
+                gl1 = a[0] + a[2];
+                gr1 = a[1] + a[3];
+                s = fabs_(gl1) + fabs_(gr1);
                 if (s > pk)
                     pk = s;
-                /* shimmer: write the tail, read it back at double speed through two taps 180 degrees apart. The
-                 * window phase is an integer (2^32 = 1024 ticks), so the tap delays are integer Q16 as well */
 #ifdef FX_OFF_SHIM
                 shim = 0.0f;
 #else
-                ps_buf[ps_w] = qw((rout_l + rout_r) * 0.5f);
+                /* shimmer: write the tail, read it back at double speed through two taps 180 degrees apart. The
+                 * window phase is an integer (2^32 = 512 ticks), so the tap delays are integer Q16 as well */
+                ps_buf[ps_w] = qw((gl1 + gr1) * 0.5f);
                 {
                     uint32_t p = ps_phq, p2 = ps_phq + 0x80000000u, pp = ps_w << 16, tri;
                     float q, w1;
@@ -282,12 +299,12 @@ static PLAT_RAM_CODE void fx_audio(int32_t *lr, uint32_t n, uint32_t master_q12)
                     tri = p < 0x80000000u ? (p >> 15) : ((0xFFFFFFFFu - p) >> 15);
                     q = (float)tri * (1.0f / 65536.0f);
                     w1 = q * q * (3.0f - 2.0f * q);
-                    shim = ip(ps_buf, pp - ((1u << 26) - (p >> 6)), PS_LEN - 1u) * w1
-                           + ip(ps_buf, pp - ((1u << 26) - (p2 >> 6)), PS_LEN - 1u) * (1.0f - w1);
-                    ps_phq += 1u << 22;
+                    shim = ip(ps_buf, pp - ((1u << 25) - (p >> 7)), PS_LEN - 1u) * w1
+                           + ip(ps_buf, pp - ((1u << 25) - (p2 >> 7)), PS_LEN - 1u) * (1.0f - w1);
+                    ps_phq += 1u << 23;
                     /* a high-pass (about 180 Hz) on the shimmer: an octave up leaves DC and the lows where they
                      * are, so without it the loop builds up there */
-                    ps_hp += (shim - ps_hp) * 0.05f;
+                    ps_hp += (shim - ps_hp) * 0.0975f;
                     shim -= ps_hp;
                 }
                 ps_w = (ps_w + 1u) & (PS_LEN - 1u);
@@ -297,10 +314,6 @@ static PLAT_RAM_CODE void fx_audio(int32_t *lr, uint32_t n, uint32_t master_q12)
                     rv_line[k][rv_w & (RV_LEN - 1u)] = qw(lim4(h[k] * rg + in));
                 }
                 rv_w = (rv_w + 1u) & (RV_LEN - 1u);
-                rout_l = 0.5f * (ro_l + rout_l);      /* this sample: halfway between the last tick and this one */
-                rout_r = 0.5f * (ro_r + rout_r);
-                ro_l = 2.0f * rout_l - ro_l;          /* the new tick's own value, kept for the next sample */
-                ro_r = 2.0f * rout_r - ro_r;
             }
             l += rout_l * rmix * 0.7f;
             r += rout_r * rmix * 0.7f;
@@ -393,6 +406,9 @@ static PLAT_RAM_CODE void fx_audio(int32_t *lr, uint32_t n, uint32_t master_q12)
     dl_lpl = no_denorm(dl_lpl);
     dl_lpr = no_denorm(dl_lpr);
     ps_hp = no_denorm(ps_hp);
+    rs_flt = no_denorm(rs_flt);
+    for (k = 0; k < 4u; k++)
+        olp[k] = no_denorm(olp[k]);
     age_lpl = no_denorm(age_lpl);
     age_lpr = no_denorm(age_lpr);
     rumble_b = no_denorm(rumble_b);
