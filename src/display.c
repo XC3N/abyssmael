@@ -212,19 +212,6 @@ static void draw(void)
     text_cat(t, " BPM");
     cv_text(124, 30, &FONT_XS, t, C_GRAY);
     t[0] = 0;
-#ifdef AMB_PROFILE
-    {   /* S sequencer, B voice setup, V voices, F effects: % of the block time */
-        static const char L[4] = {'S', 'B', 'V', 'F'};
-        uint32_t q;
-        for (q = 0; q < 4u; q++) {
-            char c[8], l[2] = {L[q], 0};
-            int_text((int32_t)prof_pct[q], c);
-            text_cat(t, l);
-            text_cat(t, c);
-            text_cat(t, " ");
-        }
-    }
-#endif
     text_cat(t, "CPU ");
     {
         char c[8];
