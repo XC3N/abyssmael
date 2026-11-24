@@ -83,7 +83,7 @@ let firmwares = [];
 async function loadList() {
   const box = $("list");
   try {
-    const r = await fetch("firmware/firmwares.json", { cache: "no-cache" });
+    const r = await fetch("firmware/firmwares.json?t=" + Date.now(), { cache: "no-store" });
     if (!r.ok) throw new Error(r.status);
     firmwares = (await r.json()).firmwares;
   } catch (e) {
@@ -150,7 +150,7 @@ function card(entry) {
     buildInfo(fw),
     h("p", {}, fw.description || ""),
     h("div", {}, (fw.tags || []).map((t) => h("span", { class: "tag" }, t))),
-    fw.preview ? h("audio", { controls: "", preload: "none", src: "firmware/" + fw.preview }) : "",
+    fw.preview ? h("audio", { controls: "", preload: "none", src: "firmware/" + fw.preview + "?v=" + String(fw.sha256 || "").slice(0, 12) }) : "",
     fw.controls ? h("details", {}, h("summary", {}, "Controls"), h("table", {}, fw.controls.map(([a, b]) => h("tr", {}, h("td", {}, a), h("td", {}, b))))) : "",
     fw.credits ? h("p", { class: "meta" }, fw.credits) : "",
     h("div", { class: "row" }, btn));
@@ -196,7 +196,7 @@ const msgs = {
   noreturn: "The FM-1 did not come back after the install. Power-cycle it (unplug and replug), then press Scan again.",
   mismatch: "The install finished, but the FM-1 reports a different firmware than expected.",
   badreq: "The FM-1 asked for data outside the package. The install was stopped.",
-  hash: "The downloaded file does not match its checksum, so nothing was sent to the FM-1.",
+  hash: "The downloaded file does not match its checksum, so nothing was sent to the FM-1. Reload the page (Ctrl+Shift+R) and try again: your browser or the site cache probably has an old copy of the firmware list.",
   badpkg: "This file is not a valid FM-1 package.",
 };
 const resumable = new Set(["stopped", "lost", "noloader", "noreturn"]);
@@ -205,9 +205,14 @@ async function startInstall(fw) {
   if (state.busy || !state.id) return;
   let pkg;
   try {
-    const r = await fetch("firmware/" + fw.file);
-    if (!r.ok) throw new Error(`could not download ${fw.file} (${r.status})`);
-    pkg = await openPackage(await r.arrayBuffer(), fw);   // checks SHA-256 and identity against the list
+    // The URL carries the start of the expected hash, so a changed file is a new URL and never an old cached copy of it.
+    // A mismatch is tried once more, bypassing every cache, before it is reported.
+    const get = async (retry) => {
+      const r = await fetch(`firmware/${fw.file}?v=${fw.sha256.slice(0, 12)}${retry ? "&r=" + Date.now() : ""}`, retry ? { cache: "reload" } : {});
+      if (!r.ok) throw new Error(`could not download ${fw.file} (${r.status})`);
+      return openPackage(await r.arrayBuffer(), fw);   // checks SHA-256 and identity against the list
+    };
+    try { pkg = await get(false); } catch (e) { if (e.code !== "hash") throw e; pkg = await get(true); }
   } catch (e) { return showFailure(fw.name, e); }
   confirmAndRun(fw.channel === "test" ? `${fw.name} (test build ${fw.label})` : fw.name, pkg, { recovery: !!fw.recovery, verified: true });
 }
