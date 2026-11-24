@@ -25,7 +25,7 @@ static void prof_add(uint32_t i, float now)
 }
 
 /* STRESS TEST (stress_set in app.c): every 2 s, 3 voices on each of the 6 tracks, with fixed notes and gates, so the voices
- * always sit at the cap with all the effects on. The same load every time: CPU readings can be compared between builds. */
+ * always sit at the cap with all the effects on (gates of 3.5 s overlap the next chord). The same load every time: CPU readings can be compared between builds. */
 volatile uint8_t amb_stress;
 static uint32_t st_cnt, st_n;
 
@@ -41,7 +41,7 @@ static void stress_tick(uint32_t n)
     if (st_cnt == 0u) {
         for (t = 0; t < NTRK; t++)
             for (j = 0; j < 3u; j++)
-                voice_start(t, (int32_t)BASE[t] + (int32_t)((st_n + j) % 3u) * 5, 0.8f, (int32_t)(1.8f * SR));
+                voice_start(t, (int32_t)BASE[t] + (int32_t)((st_n + j) % 3u) * 5, 0.8f, (int32_t)(3.5f * SR));
         st_n++;
     }
     st_cnt += n;
