@@ -72,7 +72,7 @@ enum {   /* the scene's global values */
     GP_KEY, GP_SCALE, GP_TEMPO, GP_SWING, GP_DRIFT, GP_MOVE, GP_TUNE, GP_THEME,
     GP_HISS, GP_CRACKLE, GP_WOW, GP_AGE,
     GP_DTIME, GP_DFB, GP_DTONE, GP_DMIX, GP_RSIZE, GP_RDAMP, GP_RSHIM, GP_RMIX,
-    GP_DARK, GP_ACT, GP_SPACE, NGP
+    GP_DARK, GP_ACT, GP_SPACE, GP_SLEEP, NGP
 };
 typedef struct {
     uint8_t gp[NGP];
@@ -149,7 +149,7 @@ static const uint8_t PG_REF[NPG][3][4] = {
     {{TP_LEVEL, TP_PAN, TP_DSEND, TP_RSEND}},
 };
 
-#define STORE_MAGIC 0x414D4233u          /* "AMB3" */
+#define STORE_MAGIC 0x414D4234u          /* "AMB4" (GP_SLEEP added to the scene) */
 
 /* SEQ pages 2 and 3: the track's mode's four values */
 static const uint8_t MODE_REF[3][4] = {{TP_DENS, TP_RANGE, TP_STEPS, TP_DEJAVU},
@@ -180,6 +180,14 @@ extern scene_t sc;
 extern volatile uint8_t playing, cur_trk;
 extern volatile uint32_t notes_played, drift_count;
 extern volatile uint8_t trk_active[NTRK];
+/* SLEEP TIMER (core.c). GP_SLEEP is 0 (OFF) or 1..100: the minutes are sleep_minutes(), 5 to 120 in steps of 5. Setting it
+ * starts the countdown; the last SLEEP_FADE_S seconds fade the sound out; at zero the engine stops and amb_asleep is 1:
+ * the render outputs silence and the main loop (app.c) blanks the screen and the lights until a key or button is pressed.
+ * Waking, the main loop sets GP_SLEEP to 0. */
+#define SLEEP_FADE_S 60u
+extern volatile uint8_t amb_asleep;
+uint32_t sleep_minutes(uint32_t gp_sleep);   /* 0 .. 120 */
+uint32_t sleep_left_s(void);                 /* seconds to go (0 when off) */
 #ifdef AMB_PROFILE
 extern volatile uint8_t prof_pct[4];     /* seq, engines_block, engines_run, fx: % of the block time (profile builds only) */
 #endif
