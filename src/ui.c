@@ -16,6 +16,7 @@ static struct {
     int32_t knote[NKEYS];                /* the note each key started (so a key's note off finds it) */
     uint8_t redraw;
     uint8_t cpu_max, cpu_avg;            /* BUILD AND CPU page: the highest load seen, and a slow average */
+    uint8_t pk[5];                       /* ... and the highest of each stage (S, B, V, F, R): held until K1 is turned */
     uint32_t cpu_at;
     uint8_t oct;                         /* the keys' octave shift, 0..6 (3 = none) */
 } ui;
@@ -682,7 +683,7 @@ static void input(void)
             }
             if (ui.page == PG_GLO && ui.sub[PG_GLO] == 3u) {   /* BUILD AND CPU: K1 clears the peak */
                 if (k == 0u)
-                    ui.cpu_max = 0;
+                    ui.cpu_max = 0, ui.pk[0] = ui.pk[1] = ui.pk[2] = ui.pk[3] = ui.pk[4] = 0;
                 else if (k == 1u) {              /* K2: the fixed stress test on (right) or off (left) */
                     stress_set(e > 0);
                     app_say("STRESS TEST", e > 0 ? "ON" : "OFF");

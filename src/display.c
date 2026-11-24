@@ -214,13 +214,17 @@ static void draw(void)
         static const char *const RL[6] = {"SEQ", "SETUP", "VOICES", "FX", "RENDER", "TOTAL"};
         uint32_t cpu = plat_cpu_pct(), v[6], pk[6];
         if (now - ui.cpu_at > 5000u)            /* the page was not on screen: start again */
-            ui.cpu_max = 0, ui.cpu_avg = (uint8_t)cpu;
+            ui.cpu_avg = (uint8_t)cpu;
         ui.cpu_at = now;
         if (cpu > ui.cpu_max)
             ui.cpu_max = (uint8_t)cpu;
         ui.cpu_avg = (uint8_t)((ui.cpu_avg * 7u + cpu + 4u) / 8u);   /* drawn about twice a second: some 4 s */
         for (k = 0; k < 5u; k++)                /* prof_*: S, B, V, F, then R, the whole render call */
-            v[k] = prof_pct[k], pk[k] = prof_max[k];
+        {
+            if (prof_max[k] > ui.pk[k])         /* the peaks hold until K1 clears them (the engine's own peak fades in 2 s) */
+                ui.pk[k] = prof_max[k];
+            v[k] = prof_pct[k], pk[k] = ui.pk[k];
+        }
         v[5] = cpu, pk[5] = ui.cpu_max;          /* C - R is the rest of the audio interrupt */
         for (k = 0; k < 6u; k++) {
             char c[8];
