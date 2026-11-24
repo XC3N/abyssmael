@@ -13,8 +13,16 @@ volatile uint8_t trk_active[NTRK];       /* voices sounding per track (the scree
 
 /* each stage's share of the block's time, in percent: prof_pct smoothed, prof_max a peak that decays over a few seconds
  * (the STATS page shows both; five timer reads a block, about nothing) */
-volatile uint8_t prof_pct[4], prof_max[4];                /* seq, engines_block, engines_run (both cores, wall), fx */
-static float prof_acc[4], prof_pk[4];
+volatile uint8_t prof_pct[5], prof_max[5];   /* seq, engines_block, engines_run (both cores, wall), fx, and [4] the whole app_render call */
+static float prof_acc[5], prof_pk[5];
+
+static void prof_add(uint32_t i, float now)
+{
+    prof_acc[i] += (now - prof_acc[i]) * 0.02f;
+    prof_pct[i] = (uint8_t)(prof_acc[i] > 255.0f ? 255.0f : prof_acc[i]);
+    prof_pk[i] = now > prof_pk[i] ? now : prof_pk[i] * 0.998f;
+    prof_max[i] = (uint8_t)(prof_pk[i] > 255.0f ? 255.0f : prof_pk[i]);
+}
 
 static void render_block(int32_t *lr, uint32_t n, uint32_t master_q12)
 {
@@ -30,15 +38,8 @@ static void render_block(int32_t *lr, uint32_t n, uint32_t master_q12)
     t4 = plat_ticks24();
     engines_flush();
     w[0] = (float)(t1 - t0); w[1] = (float)(t2 - t1); w[2] = (float)(t3 - t2); w[3] = (float)(t4 - t3);
-    for (i = 0; i < 4u; i++) {
-        prof_acc[i] += (100.0f * w[i] / span - prof_acc[i]) * 0.02f;
-        prof_pct[i] = (uint8_t)(prof_acc[i] > 255.0f ? 255.0f : prof_acc[i]);
-        {
-            float now = 100.0f * w[i] / span;
-            prof_pk[i] = now > prof_pk[i] ? now : prof_pk[i] * 0.998f;
-            prof_max[i] = (uint8_t)(prof_pk[i] > 255.0f ? 255.0f : prof_pk[i]);
-        }
-    }
+    for (i = 0; i < 4u; i++)
+        prof_add(i, 100.0f * w[i] / span);
 }
 
 /* ------------------------------------------------------------ sleep timer --- */
@@ -77,6 +78,7 @@ static float sleep_tick(uint32_t n)
 void app_render(int32_t *lr, uint32_t n, uint32_t master_q12)
 {
     float g = sleep_tick(n);
+    uint32_t t0 = plat_ticks24(), n0 = n;
     if (amb_asleep) {                        /* the engine is stopped: silence, no render work */
         uint32_t i;
         for (i = 0; i < 2u * n; i++)
@@ -90,6 +92,7 @@ void app_render(int32_t *lr, uint32_t n, uint32_t master_q12)
         lr += 2u * b;
         n -= b;
     }
+    prof_add(4, 100.0f * (float)(plat_ticks24() - t0) / ((float)n0 * (24000000.0f / SR)));
 }
 
 void app_panic(void)
