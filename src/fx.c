@@ -13,10 +13,10 @@
 #include "app.h"
 #include "abyssmael.h"
 
-#define DL_LEN 32768u                    /* the delay: up to 0.74 s */
+#define DL_LEN 16384u                    /* the delay, at half rate: up to 0.74 s */
 static int16_t dl_l[DL_LEN] PLAT_POOL, dl_r[DL_LEN] PLAT_POOL;
 static uint32_t dl_w;
-static float dl_t, dl_lpl, dl_lpr;
+static float dl_t, dl_lpl, dl_lpr, dl_hl, dl_hr;   /* dl_t: the time in ticks (22.05 kHz) */
 
 #define RV_LEN 2048u                     /* the reverb: four lines and a pitch shifter for the shimmer, at half rate */
 static const float RV_BASE[4] = {1557.0f, 1617.0f, 1491.0f, 1422.0f};
@@ -93,7 +93,7 @@ static PLAT_RAM_CODE void fx_audio(int32_t *lr, uint32_t n, uint32_t master_q12)
     float gain = (float)master_q12 / 4096.0f * 8300000.0f;
     /* delay, reverb and age settings, once a block */
     float dl_target = (0.02f + 0.72f * pct(sc.gp[GP_DTIME])) * SR, dfb = pct(sc.gp[GP_DFB]) * 0.92f;
-    float dtone = 0.08f + 0.85f * pct(sc.gp[GP_DTONE]), dmix = pct(sc.gp[GP_DMIX]);
+    float dtone = 0.08f + 0.85f * pct(sc.gp[GP_DTONE]), dtone2, dmix = pct(sc.gp[GP_DMIX]);
     float rsize = pct(sc.gp[GP_RSIZE]), rg = 0.55f + 0.44f * rsize, rdamp = 0.9f - 0.8f * pct(sc.gp[GP_RDAMP]), rdamp2;
     float rshim = pct(sc.gp[GP_RSHIM]), rmix = pct(sc.gp[GP_RMIX]);
     float rlen[4];
@@ -103,6 +103,8 @@ static PLAT_RAM_CODE void fx_audio(int32_t *lr, uint32_t n, uint32_t master_q12)
     float inv_n = 1.0f / (float)n;
     uint32_t crk_on = crack >= 0.02f, hiss_on = hiss > 0.0f, idle = fx_quiet >= FX_IDLE_BLOCKS;
     uint32_t wow_on = wow > 0.0f && !idle;
+    dtone2 = dtone * (2.0f - dtone);          /* the delay's tone at half rate */
+    dl_target *= 0.5f;                        /* in ticks */
     rdamp2 = rdamp * (2.0f - rdamp);          /* the same damping at half rate: two one-poles in one */
     for (k = 0; k < 4u; k++)
         rlen[k] = RV_BASE[k] * 0.5f * (0.45f + 2.0f * rsize);   /* in ticks */
@@ -170,31 +172,44 @@ static PLAT_RAM_CODE void fx_audio(int32_t *lr, uint32_t n, uint32_t master_q12)
         float ds_r = mx[0].dr[i] + mx[1].dr[i], rs = mx[0].rs[i] + mx[1].rs[i];
         float s;
         gain_now += (gain - gain_now) * 0.004f;
-        s = fabs_(l) + fabs_(r) + fabs_(ds_l) + fabs_(ds_r) + fabs_(rs);
-        if (s > pk)
-            pk = s;
-        if (!idle) {
-            float dl, dr, rin, rout_l, rout_r, tr;
-            uint32_t pw = dl_w << 16;
-#ifndef FX_OFF_DELAY
-            /* the delay: smoothed time, filtered feedback, a little cross-feed */
-            dl_t += (dl_target - dl_t) * 0.00005f;
-            tr = dl_t * 1.13f;
-            if (tr > (float)(DL_LEN - 4u))
-                tr = (float)(DL_LEN - 4u);
-            dl = ip(dl_l, pw - (uint32_t)(int32_t)(dl_t * 65536.0f), DL_LEN - 1u);
-            dr = ip(dl_r, pw - (uint32_t)(int32_t)(tr * 65536.0f), DL_LEN - 1u);
-            dl_lpl += (dl - dl_lpl) * dtone;
-            dl_lpr += (dr - dl_lpr) * dtone;
-            dl_l[dl_w] = qw(ds_l + dfb * (0.8f * dl_lpl + 0.2f * dl_lpr));
-            dl_r[dl_w] = qw(ds_r + dfb * (0.8f * dl_lpr + 0.2f * dl_lpl));
-            dl_w = (dl_w + 1u) & (DL_LEN - 1u);
-            l += dl_lpl * dmix;
-            r += dl_lpr * dmix;
-            rs += (dl_lpl + dl_lpr) * 0.25f * dmix;
-            s = fabs_(dl_lpl) + fabs_(dl_lpr);
+        if ((i & 7u) == 0u) {                 /* a look at the input every 8th sample is enough to wake from idle */
+            s = fabs_(l) + fabs_(r) + fabs_(ds_l) + fabs_(ds_r) + fabs_(rs);
             if (s > pk)
                 pk = s;
+        }
+        if (!idle) {
+            float rin, rout_l, rout_r, dyl = 0.0f, dyr = 0.0f;
+#ifndef FX_OFF_DELAY
+            /* the delay runs at half rate: a tick every second sample, fed the mean of the pair, its output linearly
+             * interpolated back up. Smoothed time, filtered feedback, a little cross-feed */
+            if (i & 1u) {
+                dl_hl = ds_l;
+                dl_hr = ds_r;
+                dyl = dl_lpl;
+                dyr = dl_lpr;
+            } else {
+                float dl, dr, tr, pl = dl_lpl, pr = dl_lpr, ml = (dl_hl + ds_l) * 0.5f, mr = (dl_hr + ds_r) * 0.5f;
+                uint32_t pw = dl_w << 16;
+                dl_t += (dl_target - dl_t) * 0.0001f;
+                tr = dl_t * 1.13f;
+                if (tr > (float)(DL_LEN - 4u))
+                    tr = (float)(DL_LEN - 4u);
+                dl = ip(dl_l, pw - (uint32_t)(int32_t)(dl_t * 65536.0f), DL_LEN - 1u);
+                dr = ip(dl_r, pw - (uint32_t)(int32_t)(tr * 65536.0f), DL_LEN - 1u);
+                dl_lpl += (dl - dl_lpl) * dtone2;
+                dl_lpr += (dr - dl_lpr) * dtone2;
+                dl_l[dl_w] = qw(ml + dfb * (0.8f * dl_lpl + 0.2f * dl_lpr));
+                dl_r[dl_w] = qw(mr + dfb * (0.8f * dl_lpr + 0.2f * dl_lpl));
+                dl_w = (dl_w + 1u) & (DL_LEN - 1u);
+                dyl = 0.5f * (pl + dl_lpl);
+                dyr = 0.5f * (pr + dl_lpr);
+                s = fabs_(dl_lpl) + fabs_(dl_lpr);
+                if (s > pk)
+                    pk = s;
+            }
+            l += dyl * dmix;
+            r += dyr * dmix;
+            rs += (dyl + dyr) * 0.25f * dmix;
 #endif
 #ifndef FX_OFF_REVERB
             /* the reverb runs at half rate (22.05 kHz): a tick every second sample, fed the mean of the pair, its
@@ -232,6 +247,9 @@ static PLAT_RAM_CODE void fx_audio(int32_t *lr, uint32_t n, uint32_t master_q12)
                     pk = s;
                 /* shimmer: write the tail, read it back at double speed through two taps 180 degrees apart. The
                  * window phase is an integer (2^32 = 1024 ticks), so the tap delays are integer Q16 as well */
+#ifdef FX_OFF_SHIM
+                shim = 0.0f;
+#else
                 ps_buf[ps_w] = qw((rout_l + rout_r) * 0.5f);
                 {
                     uint32_t p = ps_phq, p2 = ps_phq + 0x80000000u, pp = ps_w << 16, tri;
@@ -250,6 +268,7 @@ static PLAT_RAM_CODE void fx_audio(int32_t *lr, uint32_t n, uint32_t master_q12)
                     shim -= ps_hp;
                 }
                 ps_w = (ps_w + 1u) & (PS_LEN - 1u);
+#endif
                 for (k = 0; k < 4u; k++) {
                     float in = rin + (k < 2u ? shim : -shim) * rshim * 0.55f;
                     rv_line[k][rv_w & (RV_LEN - 1u)] = qw(lim4(h[k] * rg + in));
@@ -285,6 +304,7 @@ static PLAT_RAM_CODE void fx_audio(int32_t *lr, uint32_t n, uint32_t master_q12)
             drop_g += (drop_t - drop_g) * 0.004f;
             l *= drop_g;
             r *= drop_g;
+#ifndef FX_OFF_NOISE
             if (hiss_on || crk_on)
                 pink = am_rnds();
             /* hiss: pink-ish noise (three one-poles), its level wandering slowly; the right channel mixes in its own
@@ -316,6 +336,7 @@ static PLAT_RAM_CODE void fx_audio(int32_t *lr, uint32_t n, uint32_t master_q12)
                 rumble_b += (pink - rumble_b) * 0.003f;
                 low = rumble_b * rumble_g;
             }
+#endif
             low += thump;
             thump *= 0.999f;
             l += hs + crk * crk_pan + low;
@@ -327,8 +348,13 @@ static PLAT_RAM_CODE void fx_audio(int32_t *lr, uint32_t n, uint32_t master_q12)
             l = age_lpl;
             r = age_lpr;
         }
+#ifdef FX_OFF_CLIP
+        l = fm_clampf(l * (1.4f + age * 0.8f), -1.0f, 1.0f);
+        r = fm_clampf(r * (1.4f + age * 0.8f), -1.0f, 1.0f);
+#else
         l = soft_clip(l * (1.4f + age * 0.8f));
         r = soft_clip(r * (1.4f + age * 0.8f));
+#endif
         lr[2 * i] = (int32_t)(l * gain_now);
         lr[2 * i + 1] = (int32_t)(r * gain_now);
     }
