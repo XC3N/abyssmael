@@ -119,6 +119,24 @@
           "sha256": "caa107d42733eb30a79e873bb0fab513dd9db1aee5b91cc7b9a1df7dac426964",
           "wasm": "abyssmael/test/test/sim.wasm",
           "notes": "main plus the open PRs (#3, #2, #1), merged as branch test-build"
+        },
+        {
+          "label": "profile-main",
+          "version": "profile",
+          "commit": "b6ba01a+4dc84d9",
+          "built": "2026-11-24",
+          "file": "abyssmael/test/profile-main/abyssmael.fwsc",
+          "sha256": "935dd7ac914af63b7701c5979b8fb443a7245e3208564e39c609c677b978cdb1",
+          "notes": "main with the CPU profile footer: read S (sequencer), B (voice setup), V (voices), F (effects) as % of block time next to the total CPU, at idle and playing a busy scene. No browser player."
+        },
+        {
+          "label": "profile-test",
+          "version": "profile",
+          "commit": "946b862",
+          "built": "2026-11-24",
+          "file": "abyssmael/test/profile-test/abyssmael.fwsc",
+          "sha256": "4f8c7f3ca6f59ec0e9e47586d83aec955517799e31486abc534c9b0fc5a26975",
+          "notes": "the current combined test build with the profile footer on: same readings as profile-main, for comparison. No browser player."
         }
       ]
     },
