@@ -15,6 +15,8 @@ static struct {
     uint8_t hold_turned;
     int32_t knote[NKEYS];                /* the note each key started (so a key's note off finds it) */
     uint8_t redraw;
+    uint8_t cpu_max, cpu_avg;            /* BUILD AND CPU page: the highest load seen, and a slow average */
+    uint32_t cpu_at;
     uint8_t oct;                         /* the keys' octave shift, 0..6 (3 = none) */
 } ui;
 
@@ -267,6 +269,14 @@ static uint32_t slot(uint32_t bi, uint32_t *arg, const char **lbl, uint32_t *lit
         *arg = j;
         *lit = j < 2u && ui.mix_mode == j;
         return MA[j];
+    }
+    if (PG_N[pg] > 3u && bi < 5u) {          /* a button with more than 3 pages: black keys 1 to 5 pick them */
+        if (bi >= PG_N[pg])
+            return S_NONE;
+        *arg = bi;
+        *lbl = page_short(pg, bi);
+        *lit = bi == sub;
+        return S_SUB;
     }
     if (bi < 3u) {
         if (bi >= PG_N[pg])
@@ -668,6 +678,11 @@ static void input(void)
                     text_cat(nm, NOTE_NAME[degree_note(*d, 0) % 12]);
                     app_say(eu ? "HIT NOTE" : "STEP NOTE", nm);
                 }
+                continue;
+            }
+            if (ui.page == PG_GLO && ui.sub[PG_GLO] == 3u) {   /* BUILD AND CPU: K1 clears the peak */
+                if (k == 0u)
+                    ui.cpu_max = 0;
                 continue;
             }
             ref_turn(page_ref(ui.page, ui.sub[ui.page], k), e);

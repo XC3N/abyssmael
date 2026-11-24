@@ -250,3 +250,13 @@ shot sleep.png
 spin K1 -9
 wait 40
 expect sleep_min 0
+# GLO has a fourth page, BUILD AND CPU, on black key 4
+tap GLO
+wait 40
+tapkey b3
+wait 40
+expect page 73
+shot info.png
+tapkey b0
+wait 40
+expect page 70

@@ -138,15 +138,15 @@ static const pdesc_t GPD[NGP] = {
 enum { PG_HOME, PG_EDIT, PG_ENV, PG_LFO, PG_SEQ, PG_ARP, PG_FX, PG_GLO, PG_MIX, PG_SCALE, NPG };
 static const char *const PG_NAME[NPG] = {"HOME", "EDIT", "ENV", "LFO", "SEQ", "ARP", "FX", "GLO", "MIX", "SCALE"};
 static const uint8_t PG_BTN[NPG] = {B_HOME, B_EDIT, B_ENV, B_LFO, B_SEQ, B_ARP, B_FX, B_GLO, 0xFFu, B_SEL};   /* MIX: a black key */
-static const uint8_t PG_N[NPG] = {2, 2, 2, 2, 3, 2, 3, 3, 1, 1};
-static const char *const PG_TITLE[NPG][3] = {
+static const uint8_t PG_N[NPG] = {2, 2, 2, 2, 3, 2, 3, 4, 1, 1};   /* GLO's fourth page is on black key 4 (BUILD AND CPU) */
+static const char *const PG_TITLE[NPG][4] = {
     {"HOME", "SESSION"}, {"SOUND A", "SOUND B"}, {"AMP ENVELOPE", "FILTER"}, {"LFO 1", "LFO 2"}, {"SEQUENCER", "", "PATTERN"},
-    {"ARPEGGIO", "ARP SOURCE"}, {"TRACK MIX", "DELAY", "SHIMMER REVERB"}, {"KEY AND TIME", "DRIFT", "AGE"}, {"MUTE AND SOLO"}, {"KEY, SCALE, KEYS"}};
+    {"ARPEGGIO", "ARP SOURCE"}, {"TRACK MIX", "DELAY", "SHIMMER REVERB"}, {"KEY AND TIME", "DRIFT", "AGE", "BUILD AND CPU"}, {"MUTE AND SOLO"}, {"KEY, SCALE, KEYS"}};
 /* the pages' short names, for the black keys */
-static const char *const PG_SHORT[NPG][3] = {
+static const char *const PG_SHORT[NPG][4] = {
     {""}, {"SND A", "SND B"}, {"AMP", "FILT"}, {"LFO1", "LFO2"}, {"SEQ", "", "PATT"}, {"ARP", "SRC"}, {"MIX", "DELAY", "VERB"},
-    {"KEY", "DRIFT", "AGE"}, {""}, {"SCALE"}};
-static const uint8_t PG_REF[NPG][3][4] = {
+    {"KEY", "DRIFT", "AGE", "INFO"}, {""}, {"SCALE"}};
+static const uint8_t PG_REF[NPG][4][4] = {
     {{G(GP_DARK), G(GP_ACT), G(GP_SPACE), TP_LEVEL}, {G(GP_SLEEP), G(GP_TEMPO), G(GP_SWING), G(GP_DRIFT)}},
     {{TP_P0, TP_P1, TP_P2, TP_P3}, {TP_P4, TP_P5, TP_P6, TP_P7}},
     {{TP_ATK, TP_DEC, TP_SUS, TP_REL}, {TP_CUT, TP_RES, TP_FENV, TP_KEYT}},

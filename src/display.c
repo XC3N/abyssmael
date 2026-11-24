@@ -210,6 +210,57 @@ static void draw(void)
             cv_rect(x, 136, 54, 3, C_DIM);
             cv_rect(x, 136, (int32_t)(ref_frac(ref) * 54u / 200u), 3, TCOL[cur_trk]);
         }
+    } else if (pg == PG_GLO && sub == 3u) {  /* BUILD AND CPU: big numbers, for reading across the desk */
+        const char *tag = APP_TAGLINE, *rest = tag;
+        char head[16], c[8];
+        uint32_t n = 0, cpu = plat_cpu_pct();
+        int32_t w;
+        while (*rest && *rest != ' ' && n < 15u)
+            head[n++] = *rest++;
+        head[n] = 0;
+        while (*rest == ' ')
+            rest++;
+        cv_text(8, 0, &FONT_L, head, C_WHITE);
+        if (*rest) {
+            const felucca_font_t *f = text_w(&FONT_M, rest) <= 224 ? &FONT_M : &FONT_B;
+            cv_text(8, 34, f, rest, C_HI);
+        }
+        if (now - ui.cpu_at > 5000u)            /* the page was not on screen: start again */
+            ui.cpu_max = 0, ui.cpu_avg = (uint8_t)cpu;
+        ui.cpu_at = now;
+        if (cpu > ui.cpu_max)
+            ui.cpu_max = (uint8_t)cpu;
+        ui.cpu_avg = (uint8_t)((ui.cpu_avg * 7u + cpu + 4u) / 8u);   /* about every half second: some 4 s */
+        t[0] = 0;
+        text_cat(t, "C ");
+        int_text((int32_t)cpu, c);
+        text_cat(t, c);
+        text_cat(t, "%");
+        cv_text(8, 66, &FONT_L, t, cpu > 80u ? C_AMB : C_WHITE);
+        t[0] = 0;
+        text_cat(t, "AVG ");
+        int_text((int32_t)ui.cpu_avg, c);
+        text_cat(t, c);
+        text_cat(t, "  MAX ");
+        int_text((int32_t)ui.cpu_max, c);
+        text_cat(t, c);
+        cv_text(8, 100, &FONT_M, t, C_GRAY);
+#ifdef AMB_PROFILE
+        {   /* S sequencer, B voice setup, V voices, F effects: % of the block time */
+            static const char L[4] = {'S', 'B', 'V', 'F'};
+            t[0] = 0;
+            for (k = 0; k < 4u; k++) {
+                char l[3] = {L[k], ' ', 0};
+                text_cat(t, l);
+                int_text((int32_t)prof_pct[k], c);
+                text_cat(t, c);
+                text_cat(t, "  ");
+            }
+            cv_text(8, 130, &FONT_M, t, C_HI);
+        }
+#else
+        cv_text(8, 134, &FONT_S, "S B V F: PROFILE BUILDS ONLY", C_DIM);
+#endif
     } else if (pg == PG_HOME && sub == 0u) {
         for (k = 0; k < NTRK; k++) {
             int32_t y = (int32_t)k * 16;
