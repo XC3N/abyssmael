@@ -18,7 +18,7 @@
 #define NTRK 6u
 #define VPT 4u                           /* voices per track */
 #define NVOICE (NTRK * VPT)
-#define VOICE_CAP 16u                    /* sounding at once, all tracks: the CPU's budget */
+#define VOICE_CAP 12u                    /* sounding at once, all tracks: the CPU's budget */
 
 /* ------------------------------------------------------------------ tables --- */
 enum { I_DRONE, I_PAD, I_BELL, I_PLUCK, I_TEXTURE, NINST };
