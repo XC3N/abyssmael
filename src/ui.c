@@ -15,6 +15,9 @@ static struct {
     uint8_t hold_turned;
     int32_t knote[NKEYS];                /* the note each key started (so a key's note off finds it) */
     uint8_t redraw;
+    uint8_t cpu_max, cpu_avg;            /* BUILD AND CPU page: the highest load seen, and a slow average */
+    uint32_t cpu_at;
+    uint8_t oct;                         /* the keys' octave shift, 0..6 (3 = none) */
 } ui;
 
 static void text_cat(char *d, const char *s)
@@ -66,6 +69,10 @@ void app_say(const char *a, const char *b)
 /* a page's value k: SEQ 2 and 3 show the track's mode's values */
 static uint32_t page_ref(uint32_t pg, uint32_t sub, uint32_t k)
 {
+    if (pg == PG_SEQ && sub == 2u && sc.tp[cur_trk][TP_SMODE] == 1u) {   /* EUCL pattern: what shapes it as you watch */
+        static const uint8_t PAT_REF[4] = {TP_EHITS, TP_EROT, TP_EDIR, TP_ECHANCE};
+        return PAT_REF[k];
+    }
     if (pg == PG_SEQ && sub > 0u)
         return MODE_REF[sc.tp[cur_trk][TP_SMODE]][k];
     return PG_REF[pg][sub][k];
@@ -73,6 +80,19 @@ static uint32_t page_ref(uint32_t pg, uint32_t sub, uint32_t k)
 static const char *page_title(uint32_t pg, uint32_t sub)
 {
     static const char *const PT[3] = {"GENERATOR MOTIF", "EUCLID HITS", "STEP PATTERN"};
+    if (pg == PG_HOME && sub == 1u && sleep_left_s()) {   /* the timer running: the time left */
+        static char b[24];
+        uint32_t s = sleep_left_s();
+        char n[8];
+        b[0] = 0;
+        text_cat(b, "SLEEP IN ");
+        int_text((int32_t)(s / 60u), n);
+        text_cat(b, n);
+        text_cat(b, s % 60u < 10u ? ":0" : ":");
+        int_text((int32_t)(s % 60u), n);
+        text_cat(b, n);
+        return b;
+    }
     if (pg == PG_SEQ && sub == 1u)
         return SEQ_MODE[sc.tp[cur_trk][TP_SMODE]];
     if (pg == PG_SEQ && sub == 2u)
@@ -87,8 +107,18 @@ static const char *page_short(uint32_t pg, uint32_t sub)
 }
 
 /* a value's name and text */
-static const pdesc_t *ref_desc(uint32_t ref) { return ref & 0x80u ? &GPD[ref & 0x7Fu] : &TPD[ref]; }
-static uint8_t *ref_ptr(uint32_t ref) { return ref & 0x80u ? &sc.gp[ref & 0x7Fu] : &sc.tp[cur_trk][ref]; }
+/* refs 0x60 and 0x61 are the UI's own values (SCALE page): scale mode on/off and the keys' octave; not in the scene */
+static const pdesc_t PSD[2] = {{"SCALE MODE", 0, 1, K_ENUM, 1, OFF_ON}, {"KEYS OCTAVE", 0, 6, K_OCT, 1, 0}};
+static const pdesc_t *ref_desc(uint32_t ref)
+{
+    return ref >= 0x60u && ref < 0x80u ? &PSD[ref - 0x60u] : ref & 0x80u ? &GPD[ref & 0x7Fu] : &TPD[ref];
+}
+static uint8_t *ref_ptr(uint32_t ref)
+{
+    if (ref >= 0x60u && ref < 0x80u)
+        return ref == 0x60u ? (uint8_t *)&scale_mode : &ui.oct;
+    return ref & 0x80u ? &sc.gp[ref & 0x7Fu] : &sc.tp[cur_trk][ref];
+}
 static const char *ref_name(uint32_t ref)
 {
     const pdesc_t *d = ref_desc(ref);
@@ -106,6 +136,14 @@ static void ref_text(uint32_t ref, char *t)
     case K_OCT: int_text((int32_t)v - 3, t); break;
     case K_NOTE: text_cat(t, NOTE_NAME[v % 12u]); break;
     case K_BPM: int_text((int32_t)v, t); text_cat(t, " BPM"); break;
+    case K_SLEEP:
+        if (!v)
+            text_cat(t, "OFF");
+        else {
+            int_text((int32_t)sleep_minutes(v), t);
+            text_cat(t, " MIN");
+        }
+        break;
     case K_CENT: int_text((int32_t)v - 50, t); text_cat(t, " CT"); break;
     default: int_text((int32_t)v, t); break;
     }
@@ -122,10 +160,15 @@ static void ref_turn(uint32_t ref, int32_t e)
     uint8_t *p = ref_ptr(ref);
     int32_t v = clamp((int32_t)*p + e * (int32_t)d->step, d->lo, d->hi);
     char t[16];
+    if (d->kind == K_SLEEP) {                /* OFF, then 5 to 120 minutes in fives (GP_SLEEP 1, 5, 9 ... 97) */
+        int32_t m = clamp((int32_t)sleep_minutes(*p) + e * 5, 0, 120);
+        v = m ? (m / 5 - 1) * 4 + 1 : 0;
+    }
     if (v == *p)
         return;
     *p = (uint8_t)v;
-    sc_dirty = 1;
+    if (ref < 0x60u || ref >= 0x80u)
+        sc_dirty = 1;
     if (ref == G(GP_THEME))
         palette_set(sc.gp[GP_THEME]);
     ref_text(ref, t);
@@ -176,9 +219,9 @@ enum { S_NONE, S_SUB, S_TRK, S_TPREV, S_TNEXT, S_INST, S_ENV, S_LFO, S_SEQ, S_AR
        S_SMODE, S_NOTES, S_RAND, S_REST, S_CURP, S_CURN };
 static const int8_t BK_TRK[11] = {0, 1, 2, -1, -1, 3, 4, 5, -1, -1, -1};
 static const char *const TRK_LBL[NTRK] = {"T1", "T2", "T3", "T4", "T5", "T6"};
-static const char *const INST_SHORT[NINST] = {"DRONE", "PAD", "BELL", "PLUCK", "TEXT"};
+static const char *const INST_SHORT[NINST] = {"DRN", "PAD", "BEL", "PLK", "TEX"};
 static const char *const INST_3[NINST] = {"DRN", "PAD", "BEL", "PLK", "TEX"};
-static const char *const ENV_LBL[5] = {"PERC", "PLUCK", "SWELL", "PAD", "HOLD"};
+static const char *const ENV_LBL[5] = {"PERC", "PLCK", "SWEL", "PAD", "HOLD"};
 static const uint8_t ENV_SET[5][4] = {{0, 40, 0, 45}, {0, 62, 0, 62}, {82, 60, 90, 86}, {62, 60, 80, 76}, {12, 60, 100, 52}};
 static const char *const LFO_LBL[5] = {"SINE", "TRI", "SAW", "RAND", "DRIFT"};
 static const uint8_t LFO_SET[5] = {0, 1, 2, 4, 5};
@@ -186,7 +229,7 @@ static const char *const SEQ_LBL[2] = {"NEW", "LOCK"};
 static const char *const ARP_LBL[5] = {"OFF", "UP", "DOWN", "UPDN", "RAND"};
 static const char *const SEND_LBL[5] = {"DRY", "DLY", "VERB", "BOTH", "WASH"};
 static const uint8_t SEND_SET[5][2] = {{0, 0}, {60, 10}, {10, 70}, {50, 60}, {80, 100}};
-static const char *const SCN_LBL[5] = {"DEEP", "GLASS", "TIDE", "VOID", "SAVE"};
+static const char *const SCN_LBL[5] = {"DEEP", "GLAS", "TIDE", "VOID", "SAVE"};
 
 /* what black key bi does on the page shown: its action (S_*), its argument, its label, lit (1) or not */
 static uint32_t slot(uint32_t bi, uint32_t *arg, const char **lbl, uint32_t *lit)
@@ -202,8 +245,8 @@ static uint32_t slot(uint32_t bi, uint32_t *arg, const char **lbl, uint32_t *lit
         return S_MIX;
     }
     if (pg == PG_HOME || pg == PG_MIX) {
-        static const char *const HL[4] = {"SCN-", "SCN+", "PLAY", "LATCH"};
-        static const char *const ML[4] = {"MUTE", "SOLO", "CLR M", "CLR S"};
+        static const char *const HL[4] = {"SC-", "SC+", "PLY", "LTC"};
+        static const char *const ML[4] = {"MUTE", "SOLO", "CLRM", "CLRS"};
         static const uint8_t HA[4] = {S_SPREV, S_SNEXT, S_PLAY, S_LATCH}, MA[4] = {S_MMODE, S_MMODE, S_MCLR, S_SCLR};
         uint32_t j = bi == 3u ? 0u : bi == 4u ? 1u : bi == 8u ? 2u : 3u;
         if (BK_TRK[bi] >= 0) {
@@ -227,6 +270,14 @@ static uint32_t slot(uint32_t bi, uint32_t *arg, const char **lbl, uint32_t *lit
         *lit = j < 2u && ui.mix_mode == j;
         return MA[j];
     }
+    if (PG_N[pg] > 3u && bi < 5u) {          /* a button with more than 3 pages: black keys 1 to 5 pick them */
+        if (bi >= PG_N[pg])
+            return S_NONE;
+        *arg = bi;
+        *lbl = page_short(pg, bi);
+        *lit = bi == sub;
+        return S_SUB;
+    }
     if (bi < 3u) {
         if (bi >= PG_N[pg])
             return S_NONE;
@@ -240,7 +291,7 @@ static uint32_t slot(uint32_t bi, uint32_t *arg, const char **lbl, uint32_t *lit
         return bi == 3u ? S_CURP : S_CURN;
     }
     if (bi < 5u) {
-        *lbl = bi == 3u ? "TRK-" : "TRK+";
+        *lbl = bi == 3u ? "TK-" : "TK+";
         return bi == 3u ? S_TPREV : S_TNEXT;
     }
     *arg = c;
@@ -265,7 +316,7 @@ static uint32_t slot(uint32_t bi, uint32_t *arg, const char **lbl, uint32_t *lit
             return S_SEQ;
         }
         if (c == 3u) {
-            *lbl = "NOTES";
+            *lbl = "NOTE";
             *lit = ui.note_edit;
             return S_NOTES;
         }
@@ -503,7 +554,6 @@ static void black_key(uint32_t bi, int down)
 static void input(void)
 {
     static const uint8_t WK[16] = PLAT_WHITE_KEYS, BK[11] = PLAT_BLACK_KEYS;
-    static int8_t oct_shift;
     uint32_t keys = plat_keys(), btn = plat_buttons(), k, pressed = keys & ~ui.keys, released = ui.keys & ~keys;
     int32_t e;
     for (k = 0; k < NKEYS; k++) {
@@ -524,13 +574,19 @@ static void input(void)
             if (ui.note_edit) {              /* entering notes: write it, then play it as usual */
                 if (pressed & bit)
                     note_enter(wi);
-            } else if (sc.tp[cur_trk][TP_SMODE] == 2u) {   /* STEP: the white keys are the 16 steps */
+            } else {                         /* STEP: the white keys are the 16 steps; EUCL: its hits */
+                if (sc.tp[cur_trk][TP_SMODE] == 1u && wi >= seq_count(cur_trk))
+                    continue;                /* beyond the last hit: nothing there */
                 if (pressed & bit) {
                     ui.hold_step = (int8_t)wi;
                     ui.hold_turned = 0;
                 } else if (ui.hold_step == (int8_t)wi) {
-                    if (!ui.hold_turned)     /* a tap turns the step on or off; held and turned, it only sets the note */
-                        sc.son[cur_trk] ^= (uint16_t)(1u << wi);
+                    if (!ui.hold_turned) {   /* a tap turns a step on or off, or a hit into a rest and back */
+                        if (sc.tp[cur_trk][TP_SMODE] == 2u)
+                            sc.son[cur_trk] ^= (uint16_t)(1u << wi);
+                        else
+                            sc.hn[cur_trk][wi] = sc.hn[cur_trk][wi] == REST ? 0u : REST;
+                    }
                     sc_dirty = 1;
                     ui.hold_step = -1;
                 }
@@ -539,7 +595,7 @@ static void input(void)
             }
         }
         if (pressed & bit) {
-            int32_t note = scale_mode ? scale_key_note(wi) + 12 * oct_shift : 53 + (int32_t)k + 12 * oct_shift;
+            int32_t note = scale_mode ? scale_key_note(wi) + 12 * ((int32_t)ui.oct - 3) : 53 + (int32_t)k + 12 * ((int32_t)ui.oct - 3);
             if (latch && ui.latched[k]) {    /* latched: a second press lets it go */
                 ui.latched[k] = 0;
                 key_event(cur_trk, ui.knote[k], 0, 0);
@@ -570,18 +626,14 @@ static void input(void)
         case B_PLAY:
             play_toggle();
             break;
-        case B_SEL:
-            scale_mode = !scale_mode;
-            app_say("SCALE MODE", scale_mode ? "ON" : "OFF");
-            break;
         case B_REC:
             latch_toggle();
             break;
         case B_OCTDN:
         case B_OCTUP: {
             char t[4];
-            oct_shift = (int8_t)clamp(oct_shift + (k == B_OCTUP ? 1 : -1), -3, 3);
-            int_text(oct_shift, t);
+            ui.oct = (uint8_t)clamp((int32_t)ui.oct + (k == B_OCTUP ? 1 : -1), 0, 6);
+            int_text((int32_t)ui.oct - 3, t);
             app_say("KEYS OCTAVE", t);
             break;
         }
@@ -606,15 +658,31 @@ static void input(void)
         scene_step(e);
     for (k = 0; k < 4u; k++)
         if ((e = plat_enc((int)(EN_K1 + k))) != 0) {
-            if (k == 0u && ui.hold_step >= 0) {   /* a step held: K1 is its note */
-                uint8_t *d = &sc.sn[cur_trk][ui.hold_step];
-                char nm[4] = {0, 0, 0, 0};
-                *d = (uint8_t)clamp((int32_t)*d + e, 0, 15);
-                sc.son[cur_trk] |= (uint16_t)(1u << ui.hold_step);
+            if (k <= 1u && ui.hold_step >= 0) {   /* a step or hit held: K1 is its note, K2 its condition */
+                uint32_t h = (uint32_t)ui.hold_step;
+                uint32_t eu = sc.tp[cur_trk][TP_SMODE] == 1u;
                 ui.hold_turned = 1;
                 sc_dirty = 1;
-                text_cat(nm, NOTE_NAME[degree_note(*d, 0) % 12]);
-                app_say("STEP NOTE", nm);
+                if (k == 1u) {
+                    int32_t c = clamp((int32_t)sc.cd[cur_trk][h] + e, 0, NCOND - 1);
+                    sc.cd[cur_trk][h] = (uint8_t)c;
+                    app_say("CONDITION", COND_NAME[c]);
+                    continue;
+                }
+                {
+                    uint8_t *d = eu ? &sc.hn[cur_trk][h] : &sc.sn[cur_trk][h];
+                    char nm[4] = {0, 0, 0, 0};
+                    *d = (uint8_t)clamp((int32_t)(*d == REST ? 0 : *d) + e, 0, 15);
+                    if (!eu)
+                        sc.son[cur_trk] |= (uint16_t)(1u << h);
+                    text_cat(nm, NOTE_NAME[degree_note(*d, 0) % 12]);
+                    app_say(eu ? "HIT NOTE" : "STEP NOTE", nm);
+                }
+                continue;
+            }
+            if (ui.page == PG_GLO && ui.sub[PG_GLO] == 3u) {   /* BUILD AND CPU: K1 clears the peak */
+                if (k == 0u)
+                    ui.cpu_max = 0;
                 continue;
             }
             ref_turn(page_ref(ui.page, ui.sub[ui.page], k), e);

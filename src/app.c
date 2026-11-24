@@ -39,6 +39,7 @@ void app_ui_init(void)
     lcd_fill(0, 0, 240, 240, C_BLACK);
     ui.page = PG_HOME;
     ui.hold_step = -1;
+    ui.oct = 3;
     ui.redraw = 1;
 }
 
@@ -128,6 +129,14 @@ int app_expect(const char *what, int *got)
         *got = sc.tp[cur_trk][TP_DEJAVU];
     else if (!strcmp(what, "arp"))
         *got = sc.tp[cur_trk][TP_ARPON] ? sc.tp[cur_trk][TP_ARPPAT] + 1 : 0;
+    else if (!strcmp(what, "cd0") || !strcmp(what, "cd1"))   /* the condition of hit or step 0 / 1 */
+        *got = sc.cd[cur_trk][what[2] - '0'];
+    else if (!strcmp(what, "edrift"))
+        *got = sc.tp[cur_trk][TP_EDRIFT];
+    else if (!strcmp(what, "edir"))
+        *got = sc.tp[cur_trk][TP_EDIR];
+    else if (!strcmp(what, "arpsrc"))
+        *got = sc.tp[cur_trk][TP_ARPSRC];
     else if (!strcmp(what, "asleep"))
         *got = amb_asleep;
     else if (!strcmp(what, "sleep_min"))
