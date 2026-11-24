@@ -2,7 +2,12 @@
 /* FX: everything after the voices. A stereo delay, the shimmer reverb (all-passes, a four-line feedback network and an
  * octave-up pitch shifter in its loop), the AGE layer (wow and flutter, tape dropouts, hiss, dusty crackle, rumble and
  * the record's turn, a worn top end), the soft clip and the master gain. It takes the engines' mix buffers (mx) and
- * writes the audio block. Built at -O2, run from RAM. */
+ * writes the audio block. Built at -O2, run from RAM.
+ *
+ * Cost: the per-sample work is mostly instruction count, so (1) every delay-line read is fixed point (a Q16 position,
+ * an integer interpolation, one int-to-float), (2) wow is skipped while it is 0, the hiss and the dust while they are
+ * 0, and (3) once nothing has come in and nothing has come out of the delay or the reverb for about 0.8 s, the delay,
+ * reverb and wow are skipped altogether (idle) until sound arrives again. */
 #define AMB_ENGINE 1
 #include "plat.h"
 #include "app.h"
@@ -23,18 +28,23 @@ static int16_t rv_ap[2][AP_LEN] PLAT_POOL;
 static const uint32_t AP_D[2] = {347u, 883u};
 #define PS_LEN 4096u
 static int16_t ps_buf[PS_LEN] PLAT_POOL;
-static uint32_t ps_w;
-static float ps_ph, rv_mod, ps_hp, rv_dc[4];
+static uint32_t ps_w, ps_phq;            /* ps_phq: the shimmer's window phase, 2^32 = one window of 2048 samples */
+static float rv_mod, ps_hp, rv_dc[4];
 
 #define WOW_LEN 2048u                    /* the master's wow and flutter */
 static int16_t wow_l[WOW_LEN] PLAT_POOL, wow_r[WOW_LEN] PLAT_POOL;
-static uint32_t wow_w;
+static uint32_t wow_w, wow_run;
 static float wow_ph, flut_ph, wow_rnd, age_lpl, age_lpr, hiss_b[3], hiss_lvl, crk, crk_k, crk_pan;
 static float gain_now;
 /* the AGE layer's own state: dust density and its countdown, the right channel's hiss, rumble, the record's turn,
  * tape dropouts */
 static float dust_dens = 1.0f, crk_cnt = 1000.0f, hr_b, rumble_b, rev_ph, thump, drop_g = 1.0f, drop_t = 1.0f;
 static uint32_t drop_blk;
+static int32_t rd_q[4], rd_stepq[4], wow_dq = 8 << 16, wow_stepq;   /* delays in samples, Q16 */
+static uint32_t fx_quiet;                /* blocks in a row with nothing coming in or going round */
+#define FX_IDLE_BLOCKS 280u              /* about 0.8 s: longer than the delay */
+/* "quiet" is a summed absolute level of 1.5e-3 (about -56 dB): the int16 lines keep a rounding floor of 5e-4 to 8e-4 */
+#define FX_QUIET_LVL 1.5e-3f
 
 /* a float to the int16 lines: clamped, and rounded (a plain cast truncates toward zero and kills the quiet tails) */
 static inline __attribute__((always_inline)) int16_t qw(float x)
@@ -54,27 +64,14 @@ static inline __attribute__((always_inline)) float lim4(float x)
     return x < 0.0f ? -y : y;
 }
 
-static inline __attribute__((always_inline)) float dl_read(const int16_t *b, float d)
+/* a line read at a Q16 position (the whole part picks the sample, 15 bits of the fraction weigh the next one); the
+ * interpolation is integer, then one conversion to float. mask is the line's length minus 1 (a power of two up to
+ * 65536, so the position can wrap as a plain unsigned subtraction) */
+static inline __attribute__((always_inline)) float ip(const int16_t *b, uint32_t pos, uint32_t mask)
 {
-    float pos = (float)dl_w - d, fr;
-    int32_t i;
-    if (pos < 0.0f)
-        pos += (float)DL_LEN;
-    i = (int32_t)pos;
-    fr = pos - (float)i;
-    return (b[i & (DL_LEN - 1)] * (1.0f - fr) + b[(i + 1) & (DL_LEN - 1)] * fr) * (1.0f / 8192.0f);
-}
-
-/* the shimmer's taps: the tail read back d samples behind the write point, interpolated */
-static inline __attribute__((always_inline)) float ps_read(float d)
-{
-    float pos = (float)ps_w - d, fr;
-    int32_t i;
-    if (pos < 0.0f)
-        pos += (float)PS_LEN;
-    i = (int32_t)pos;
-    fr = pos - (float)i;
-    return (ps_buf[i & (PS_LEN - 1)] * (1.0f - fr) + ps_buf[(i + 1) & (PS_LEN - 1)] * fr) * (1.0f / 8192.0f);
+    uint32_t i = pos >> 16;
+    int32_t f = (int32_t)((pos >> 1) & 0x7FFFu), a = b[i & mask], c = b[(i + 1u) & mask];
+    return (float)(a * 32768 + (c - a) * f) * (1.0f / 268435456.0f);   /* 8192 (the line's scale) * 32768 */
 }
 
 /* tanh, as a rational (Pade) fit that is exact to the third order and bounded: |error| < 0.02 over |x| < 3 */
@@ -87,8 +84,7 @@ static inline __attribute__((always_inline)) float soft_clip(float x)
     return x * (27.0f + x2) / (27.0f + 9.0f * x2);
 }
 
-static float rd_now[4], rd_step[4], wow_d = 8.0f, wow_dstep;
-
+static inline __attribute__((always_inline)) float fabs_(float x) { return x < 0.0f ? -x : x; }
 
 static PLAT_RAM_CODE void fx_audio(int32_t *lr, uint32_t n, uint32_t master_q12)
 {
@@ -102,19 +98,22 @@ static PLAT_RAM_CODE void fx_audio(int32_t *lr, uint32_t n, uint32_t master_q12)
     float rlen[4];
     float hiss = pct(sc.gp[GP_HISS]), crack = pct(sc.gp[GP_CRACKLE]), wow = pct(sc.gp[GP_WOW]), age = pct(sc.gp[GP_AGE]);
     float age_a = 1.0f - fm_expf(-6.2831853f * (18000.0f * fm_exp2f(-age * 3.0f)) / SR);
-    float hiss_g = hiss * hiss * 0.25f, rumble_g = crack * crack * 1.2f, crk_gap;
-    uint32_t crk_on = crack >= 0.02f;
+    float hiss_g = hiss * hiss * 0.25f, rumble_g = crack * crack * 1.2f, crk_gap, pk = 0.0f;
+    float inv_n = 1.0f / (float)n;
+    uint32_t crk_on = crack >= 0.02f, hiss_on = hiss > 0.0f, idle = fx_quiet >= FX_IDLE_BLOCKS;
+    uint32_t wow_on = wow > 0.0f && !idle;
     for (k = 0; k < 4u; k++)
         rlen[k] = RV_BASE[k] * (0.45f + 2.0f * rsize);
     /* the effects' slow modulation, once a block (and moved smoothly across it) */
     {
-        float m0, m1;
+        float m0;
+        int32_t diff;
         rv_mod += 0.6f / SR * (float)n;
         if (rv_mod >= 1.0f)
             rv_mod -= 1.0f;
         for (k = 0; k < 4u; k++) {
             float d = (k & 1u ? 6.0f : -6.0f) * fm_sin_turns(rv_mod + 0.25f * (float)k);
-            rd_step[k] = (rlen[k] + d - rd_now[k]) / (float)n;
+            rd_stepq[k] = (int32_t)((float)((int32_t)((rlen[k] + d) * 65536.0f) - rd_q[k]) * inv_n);
         }
         wow_ph += 0.45f / SR * (float)n;
         if (wow_ph >= 1.0f) {
@@ -126,8 +125,21 @@ static PLAT_RAM_CODE void fx_audio(int32_t *lr, uint32_t n, uint32_t master_q12)
             flut_ph -= 1.0f;
         m0 = 8.0f + wow * (60.0f * (0.5f + 0.5f * fm_sin_turns(wow_ph)) * (0.6f + 0.4f * wow_rnd)
                            + 6.0f * (0.5f + 0.5f * fm_sin_turns(flut_ph)));
-        m1 = (m0 - wow_d) / (float)n;
-        wow_dstep = m1;
+        if (wow_on && !wow_run) {                 /* wow comes on: start from an empty line and the rest position */
+            for (k = 0; k < WOW_LEN; k++) {
+                wow_l[k] = 0;
+                wow_r[k] = 0;
+            }
+            wow_dq = 8 << 16;
+        }
+        wow_run = wow_on;
+        diff = (int32_t)(m0 * 65536.0f) - wow_dq;
+        if (diff < (int32_t)n && diff > -(int32_t)n) {   /* the step is a truncated division: land the last bit */
+            wow_dq += diff;
+            wow_stepq = 0;
+        } else {
+            wow_stepq = (int32_t)((float)diff * inv_n);
+        }
     }
     /* AGE, once a block: the dust's density wanders, the record turns (33 rpm), the tape drops out now and then */
     {
@@ -154,134 +166,140 @@ static PLAT_RAM_CODE void fx_audio(int32_t *lr, uint32_t n, uint32_t master_q12)
     for (i = 0; i < n; i++) {
         float l = mx[0].l[i] + mx[1].l[i], r = mx[0].r[i] + mx[1].r[i], ds_l = mx[0].dl[i] + mx[1].dl[i];
         float ds_r = mx[0].dr[i] + mx[1].dr[i], rs = mx[0].rs[i] + mx[1].rs[i];
-        float dl, dr, rin, rout_l, rout_r;
+        float s;
         gain_now += (gain - gain_now) * 0.004f;
-        /* the delay: smoothed time, filtered feedback, a little cross-feed */
-        dl_t += (dl_target - dl_t) * 0.00005f;
-        dl = dl_read(dl_l, dl_t);
-        dr = dl_read(dl_r, dl_t * 1.13f > (float)(DL_LEN - 4u) ? (float)(DL_LEN - 4u) : dl_t * 1.13f);
-        dl_lpl += (dl - dl_lpl) * dtone;
-        dl_lpr += (dr - dl_lpr) * dtone;
-        dl_l[dl_w] = qw(ds_l + dfb * (0.8f * dl_lpl + 0.2f * dl_lpr));
-        dl_r[dl_w] = qw(ds_r + dfb * (0.8f * dl_lpr + 0.2f * dl_lpl));
-        dl_w = (dl_w + 1u) & (DL_LEN - 1u);
-        l += dl_lpl * dmix;
-        r += dl_lpr * dmix;
-        rs += (dl_lpl + dl_lpr) * 0.25f * dmix;
-        /* the reverb: two all-passes into four lines, mixed (Hadamard), damped; the shimmer is an octave up
-         * pitch shifter (two crossfaded taps) fed back into the lines */
-        rin = rs * 0.5f;
-        for (k = 0; k < 2u; k++) {
-            uint32_t ri = (rv_w - AP_D[k]) & (AP_LEN - 1u);
-            float dly = rv_ap[k][ri] * (1.0f / 8192.0f), y = dly - 0.6f * rin;
-            rv_ap[k][rv_w & (AP_LEN - 1u)] = qw(rin + 0.6f * y);
-            rin = y;
-        }
-        {
-            float a[4], h[4], shim;
-            for (k = 0; k < 4u; k++) {
-                float d, pos, fr;
-                int32_t ix;
-                rd_now[k] += rd_step[k];
-                d = rd_now[k];
-                pos = (float)rv_w - d;
-                if (pos < 0.0f)
-                    pos += (float)RV_LEN;
-                ix = (int32_t)pos;
-                fr = pos - (float)ix;
-                a[k] = (rv_line[k][ix & (RV_LEN - 1)] * (1.0f - fr) + rv_line[k][(ix + 1) & (RV_LEN - 1)] * fr)
-                       * (1.0f / 8192.0f);
-                rv_lp[k] += (a[k] - rv_lp[k]) * rdamp;
-                rv_dc[k] += (rv_lp[k] - rv_dc[k]) * 0.0007f;   /* a DC blocker in each line (about 5 Hz) */
-                a[k] = rv_lp[k] - rv_dc[k];
+        s = fabs_(l) + fabs_(r) + fabs_(ds_l) + fabs_(ds_r) + fabs_(rs);
+        if (s > pk)
+            pk = s;
+        if (!idle) {
+            float dl, dr, rin, rout_l, rout_r, tr;
+            uint32_t pw = dl_w << 16;
+            /* the delay: smoothed time, filtered feedback, a little cross-feed */
+            dl_t += (dl_target - dl_t) * 0.00005f;
+            tr = dl_t * 1.13f;
+            if (tr > (float)(DL_LEN - 4u))
+                tr = (float)(DL_LEN - 4u);
+            dl = ip(dl_l, pw - (uint32_t)(int32_t)(dl_t * 65536.0f), DL_LEN - 1u);
+            dr = ip(dl_r, pw - (uint32_t)(int32_t)(tr * 65536.0f), DL_LEN - 1u);
+            dl_lpl += (dl - dl_lpl) * dtone;
+            dl_lpr += (dr - dl_lpr) * dtone;
+            dl_l[dl_w] = qw(ds_l + dfb * (0.8f * dl_lpl + 0.2f * dl_lpr));
+            dl_r[dl_w] = qw(ds_r + dfb * (0.8f * dl_lpr + 0.2f * dl_lpl));
+            dl_w = (dl_w + 1u) & (DL_LEN - 1u);
+            l += dl_lpl * dmix;
+            r += dl_lpr * dmix;
+            rs += (dl_lpl + dl_lpr) * 0.25f * dmix;
+            s = fabs_(dl_lpl) + fabs_(dl_lpr);
+            if (s > pk)
+                pk = s;
+            /* the reverb: two all-passes into four lines, mixed (Hadamard), damped; the shimmer is an octave up
+             * pitch shifter (two crossfaded taps) fed back into the lines */
+            rin = rs * 0.5f;
+            for (k = 0; k < 2u; k++) {
+                uint32_t ri = (rv_w - AP_D[k]) & (AP_LEN - 1u);
+                float dly = rv_ap[k][ri] * (1.0f / 8192.0f), y = dly - 0.6f * rin;
+                rv_ap[k][rv_w & (AP_LEN - 1u)] = qw(rin + 0.6f * y);
+                rin = y;
             }
-            h[0] = (a[0] + a[1] + a[2] + a[3]) * 0.5f;
-            h[1] = (a[0] - a[1] + a[2] - a[3]) * 0.5f;
-            h[2] = (a[0] + a[1] - a[2] - a[3]) * 0.5f;
-            h[3] = (a[0] - a[1] - a[2] + a[3]) * 0.5f;
-            rout_l = a[0] + a[2];
-            rout_r = a[1] + a[3];
-            /* shimmer: write the tail, read it back at double speed through two taps 180 degrees apart */
-            ps_buf[ps_w] = qw((rout_l + rout_r) * 0.5f);
             {
-                float wnd = 2048.0f, d1, d2, w1, q, p2;
-                ps_ph += 1.0f / wnd;
-                if (ps_ph >= 1.0f)
-                    ps_ph -= 1.0f;
-                p2 = ps_ph >= 0.5f ? ps_ph - 0.5f : ps_ph + 0.5f;
-                d1 = wnd * (1.0f - ps_ph);
-                d2 = wnd * (1.0f - p2);
-                /* the crossfade: a smoothstep that is 0 where tap 1 wraps and 1 where tap 2 wraps; the two weights
-                 * sum to exactly 1 (no per-sample sin) */
-                q = ps_ph < 0.5f ? 2.0f * ps_ph : 2.0f - 2.0f * ps_ph;
-                w1 = q * q * (3.0f - 2.0f * q);
-                shim = ps_read(d1) * w1 + ps_read(d2) * (1.0f - w1);
-                /* a high-pass (about 180 Hz) on the shimmer: an octave up leaves DC and the lows where they are,
-                 * so without it the loop builds up there */
-                ps_hp += (shim - ps_hp) * 0.0253f;
-                shim -= ps_hp;
+                float a[4], h[4], shim;
+                uint32_t rw = rv_w << 16;
+                for (k = 0; k < 4u; k++) {
+                    rd_q[k] += rd_stepq[k];
+                    a[k] = ip(rv_line[k], rw - (uint32_t)rd_q[k], RV_LEN - 1u);
+                    rv_lp[k] += (a[k] - rv_lp[k]) * rdamp;
+                    rv_dc[k] += (rv_lp[k] - rv_dc[k]) * 0.0007f;   /* a DC blocker in each line (about 5 Hz) */
+                    a[k] = rv_lp[k] - rv_dc[k];
+                }
+                h[0] = (a[0] + a[1] + a[2] + a[3]) * 0.5f;
+                h[1] = (a[0] - a[1] + a[2] - a[3]) * 0.5f;
+                h[2] = (a[0] + a[1] - a[2] - a[3]) * 0.5f;
+                h[3] = (a[0] - a[1] - a[2] + a[3]) * 0.5f;
+                rout_l = a[0] + a[2];
+                rout_r = a[1] + a[3];
+                s = fabs_(rout_l) + fabs_(rout_r);
+                if (s > pk)
+                    pk = s;
+                /* shimmer: write the tail, read it back at double speed through two taps 180 degrees apart. The
+                 * window phase is an integer (2^32 = 2048 samples), so the tap delays are integer Q16 as well */
+                ps_buf[ps_w] = qw((rout_l + rout_r) * 0.5f);
+                {
+                    uint32_t p = ps_phq, p2 = ps_phq + 0x80000000u, pp = ps_w << 16, tri;
+                    float q, w1;
+                    /* the crossfade: a smoothstep that is 0 where tap 1 wraps and 1 where tap 2 wraps; the two
+                     * weights sum to exactly 1 (no per-sample sin) */
+                    tri = p < 0x80000000u ? (p >> 15) : ((0xFFFFFFFFu - p) >> 15);
+                    q = (float)tri * (1.0f / 65536.0f);
+                    w1 = q * q * (3.0f - 2.0f * q);
+                    shim = ip(ps_buf, pp - ((1u << 27) - (p >> 5)), PS_LEN - 1u) * w1
+                           + ip(ps_buf, pp - ((1u << 27) - (p2 >> 5)), PS_LEN - 1u) * (1.0f - w1);
+                    ps_phq += 1u << 21;
+                    /* a high-pass (about 180 Hz) on the shimmer: an octave up leaves DC and the lows where they
+                     * are, so without it the loop builds up there */
+                    ps_hp += (shim - ps_hp) * 0.0253f;
+                    shim -= ps_hp;
+                }
+                ps_w = (ps_w + 1u) & (PS_LEN - 1u);
+                for (k = 0; k < 4u; k++) {
+                    float in = rin + (k < 2u ? shim : -shim) * rshim * 0.55f;
+                    rv_line[k][rv_w & (RV_LEN - 1u)] = qw(lim4(h[k] * rg + in));
+                }
+                rv_w = (rv_w + 1u) & (RV_LEN - 1u);
             }
-            ps_w = (ps_w + 1u) & (PS_LEN - 1u);
-            for (k = 0; k < 4u; k++) {
-                float in = rin + (k < 2u ? shim : -shim) * rshim * 0.55f;
-                rv_line[k][rv_w & (RV_LEN - 1u)] = qw(lim4(h[k] * rg + in));
-            }
-            rv_w = (rv_w + 1u) & (RV_LEN - 1u);
-        }
-        l += rout_l * rmix * 0.7f;
-        r += rout_r * rmix * 0.7f;
-        /* AGE: wow and flutter (a modulated short delay), tape dropouts, hiss, dusty crackle, rumble and the
-         * record's turn, a softer top and a little drive */
-        {
-            float pink, white2, hs, hsr, d, pos, fr, wl, wr, low;
-            int32_t ix;
-            wow_l[wow_w] = qw(l);
-            wow_r[wow_w] = qw(r);
-            wow_d += wow_dstep;
-            d = wow_d;
-            pos = (float)wow_w - d;
-            if (pos < 0.0f)
-                pos += (float)WOW_LEN;
-            ix = (int32_t)pos;
-            fr = pos - (float)ix;
-            wl = (wow_l[ix & (WOW_LEN - 1)] * (1.0f - fr) + wow_l[(ix + 1) & (WOW_LEN - 1)] * fr) * (1.0f / 8192.0f);
-            wr = (wow_r[ix & (WOW_LEN - 1)] * (1.0f - fr) + wow_r[(ix + 1) & (WOW_LEN - 1)] * fr) * (1.0f / 8192.0f);
-            wow_w = (wow_w + 1u) & (WOW_LEN - 1u);
-            if (wow > 0.0f) {
+            l += rout_l * rmix * 0.7f;
+            r += rout_r * rmix * 0.7f;
+            /* AGE: wow and flutter (a modulated short delay), skipped while WOW is 0 */
+            if (wow_run) {
+                float wl, wr;
+                uint32_t ww = wow_w << 16;
+                wow_l[wow_w] = qw(l);
+                wow_r[wow_w] = qw(r);
+                wow_dq += wow_stepq;
+                wl = ip(wow_l, ww - (uint32_t)wow_dq, WOW_LEN - 1u);
+                wr = ip(wow_r, ww - (uint32_t)wow_dq, WOW_LEN - 1u);
+                wow_w = (wow_w + 1u) & (WOW_LEN - 1u);
                 l = wl;
                 r = wr;
             }
+        }
+        /* AGE: tape dropouts, hiss, dusty crackle, rumble and the record's turn, a softer top and a little drive */
+        {
+            float pink = 0.0f, hs = 0.0f, hsr = 0.0f, low = 0.0f;
             drop_g += (drop_t - drop_g) * 0.004f;
             l *= drop_g;
             r *= drop_g;
+            if (hiss_on || crk_on)
+                pink = am_rnds();
             /* hiss: pink-ish noise (three one-poles), its level wandering slowly; the right channel mixes in its own
              * darker noise so the two sides are not copies */
-            pink = am_rnds();
-            white2 = am_rnds();
-            hiss_b[0] = 0.997f * hiss_b[0] + 0.029591f * pink;
-            hiss_b[1] = 0.985f * hiss_b[1] + 0.032534f * pink;
-            hiss_b[2] = 0.950f * hiss_b[2] + 0.048056f * pink;
-            hs = hiss_b[0] + hiss_b[1] + hiss_b[2] + pink * 0.05f;
-            hr_b += (white2 - hr_b) * 0.35f;
-            hsr = 0.6f * hs + 0.8f * hr_b;
-            hiss_lvl += ((0.6f + 0.4f * wow_rnd) - hiss_lvl) * 0.00001f;
-            hs *= hiss_g * hiss_lvl;
-            hsr *= hiss_g * hiss_lvl;
+            if (hiss_on) {
+                float white2 = am_rnds();
+                hiss_b[0] = 0.997f * hiss_b[0] + 0.029591f * pink;
+                hiss_b[1] = 0.985f * hiss_b[1] + 0.032534f * pink;
+                hiss_b[2] = 0.950f * hiss_b[2] + 0.048056f * pink;
+                hs = hiss_b[0] + hiss_b[1] + hiss_b[2] + pink * 0.05f;
+                hr_b += (white2 - hr_b) * 0.35f;
+                hsr = 0.6f * hs + 0.8f * hr_b;
+                hiss_lvl += ((0.6f + 0.4f * wow_rnd) - hiss_lvl) * 0.00001f;
+                hs *= hiss_g * hiss_lvl;
+                hsr *= hiss_g * hiss_lvl;
+            }
             /* crackle: dust. The gaps between clicks bunch up (a squared random gap), the density wanders, the
              * clicks are mostly small with the odd pop, and each is a short one-sided decay */
-            crk_cnt -= 1.0f;
-            if (crk_cnt <= 0.0f) {
-                float u = am_rndf(), sz = am_rndf();
-                crk_cnt = crk_gap * 3.0f * u * u + 1.0f;
-                if (crk_on) {
+            if (crk_on) {
+                crk_cnt -= 1.0f;
+                if (crk_cnt <= 0.0f) {
+                    float u = am_rndf(), sz = am_rndf();
+                    crk_cnt = crk_gap * 3.0f * u * u + 1.0f;
                     crk = am_rnds() * (0.03f + 0.55f * sz * sz * sz * sz);
                     crk_k = 0.25f + 0.55f * am_rndf();
                     crk_pan = am_rndf();
                 }
+                /* rumble (a very low noise) and the thump of the record's turn, both with CRACKLE */
+                rumble_b += (pink - rumble_b) * 0.003f;
+                low = rumble_b * rumble_g;
             }
-            /* rumble (a very low noise) and the thump of the record's turn, both with CRACKLE */
-            rumble_b += (pink - rumble_b) * 0.003f;
-            low = rumble_b * rumble_g + thump;
+            low += thump;
             thump *= 0.999f;
             l += hs + crk * crk_pan + low;
             r += hsr + crk * (1.0f - crk_pan) + low;
@@ -296,6 +314,12 @@ static PLAT_RAM_CODE void fx_audio(int32_t *lr, uint32_t n, uint32_t master_q12)
         r = soft_clip(r * (1.4f + age * 0.8f));
         lr[2 * i] = (int32_t)(l * gain_now);
         lr[2 * i + 1] = (int32_t)(r * gain_now);
+    }
+    if (pk < FX_QUIET_LVL) {
+        if (fx_quiet < 100000u)
+            fx_quiet++;
+    } else {
+        fx_quiet = 0;
     }
     for (k = 0; k < 4u; k++) {
         rv_lp[k] = no_denorm(rv_lp[k]);
