@@ -83,7 +83,7 @@ let firmwares = [];
 async function loadList() {
   const box = $("list");
   try {
-    const r = await fetch("firmware/firmwares.json", { cache: "no-cache" });
+    const r = await fetch("firmware/firmwares.json?t=" + Date.now(), { cache: "no-store" });
     if (!r.ok) throw new Error(r.status);
     firmwares = (await r.json()).firmwares;
   } catch (e) {
@@ -131,7 +131,7 @@ function picker(fw, need) {
 }
 function buildInfo(b) {
   if (b.channel !== "test") return "";
-  return h("p", { class: "meta" }, `Test build ${b.label}${b.commit ? " · commit " + String(b.commit).slice(0, 7) : ""}${b.built ? " · built " + b.built : ""}. ${b.notes || "Unreleased: it may be unstable."} SAFE MODE and "Back to stock" can always recover the FM-1.`);
+  return h("p", { class: "meta" }, `Test build ${b.label}${b.commit ? " · commit " + String(b.commit).slice(0, 7) : ""}${b.built ? " · built " + b.built : ""}. ${b.notes || "Unreleased: it may be unstable."}`);
 }
 function renderLists() {
   $("list").replaceChildren(...firmwares.map(card));
@@ -144,16 +144,16 @@ function card(entry) {
   const btn = h("button", { "data-install": fw.id }, fw.recovery ? "Restore" : fw.channel === "test" ? "Install test build" : "Install");
   btn.onclick = () => startInstall(fw);
   return h("div", { class: "panel fw" },
-    h("h3", {}, fw.name),
+    h("div", { class: "row", style: "justify-content:space-between" }, h("h3", {}, fw.name), btn),
     picker(entry, "file"),
-    h("div", { class: "meta" }, `${fw.version} · ${fw.product} · ${fw.license || ""}`),
+    h("div", { class: "meta" }, `${fw.version} · ${fw.product}`),
     buildInfo(fw),
-    h("p", {}, fw.description || ""),
-    h("div", {}, (fw.tags || []).map((t) => h("span", { class: "tag" }, t))),
-    fw.preview ? h("audio", { controls: "", preload: "none", src: "firmware/" + fw.preview }) : "",
-    fw.controls ? h("details", {}, h("summary", {}, "Controls"), h("table", {}, fw.controls.map(([a, b]) => h("tr", {}, h("td", {}, a), h("td", {}, b))))) : "",
-    fw.credits ? h("p", { class: "meta" }, fw.credits) : "",
-    h("div", { class: "row" }, btn));
+    h("details", {}, h("summary", {}, "About"),
+      h("p", {}, fw.description || ""),
+      h("div", {}, (fw.tags || []).map((t) => h("span", { class: "tag" }, t))),
+      fw.preview ? h("audio", { controls: "", preload: "none", src: "firmware/" + fw.preview + "?v=" + String(fw.sha256 || "").slice(0, 12) }) : "",
+      fw.controls ? h("table", {}, fw.controls.map(([a, b]) => h("tr", {}, h("td", {}, a), h("td", {}, b)))) : "",
+      fw.credits ? h("p", { class: "meta" }, fw.credits) : ""));
 }
 
 // the in-browser simulator (js/simulator.js): hear a firmware without flashing it
@@ -161,7 +161,6 @@ function tryCard(entry) {
   const cur = current(entry), fw = cur.sim ? cur : buildsOf(entry).main;
   return h("div", { class: "panel fw" },
     h("h3", {}, fw.name), picker(entry, "sim"), h("div", { class: "meta" }, fw.version), buildInfo(fw),
-    h("p", {}, "Play it here with no FM-1 and nothing to install. Works on phones too."),
     h("div", { class: "row" }, tryBtn(fw)));
 }
 let sim = null;
@@ -180,8 +179,8 @@ $("sim-close").onclick = () => $("sim").close();
 $("sim").addEventListener("close", () => { sim?.stop(); sim = null; $("sim-body").replaceChildren(); });
 
 function refreshButtons() {
-  for (const b of document.querySelectorAll("[data-install]")) b.disabled = !state.id || state.busy;
-  $("localfile").disabled = !state.id || state.busy;
+  for (const b of document.querySelectorAll("[data-install]")) b.disabled = state.busy || !supported;
+  $("localfile").disabled = state.busy || !supported;
 }
 
 // ----------------------------------------------------------------- install
@@ -194,28 +193,40 @@ const msgs = {
   lost: "The USB connection dropped.",
   noloader: "The update loader did not appear.",
   noreturn: "The FM-1 did not come back after the install. Power-cycle it (unplug and replug), then press Scan again.",
-  mismatch: "The install finished, but the FM-1 reports a different firmware than expected.",
+  mismatch: "The write finished, but the FM-1 reports a different firmware ID than the package. This is not the file checksum: the file was written as downloaded.",
   badreq: "The FM-1 asked for data outside the package. The install was stopped.",
-  hash: "The downloaded file does not match its checksum, so nothing was sent to the FM-1.",
+  hash: "The downloaded file does not match its checksum, so nothing was sent to the FM-1. Reload the page (Ctrl+Shift+R) and try again: your browser or the site cache probably has an old copy of the firmware list.",
   badpkg: "This file is not a valid FM-1 package.",
 };
 const resumable = new Set(["stopped", "lost", "noloader", "noreturn"]);
 
 async function startInstall(fw) {
-  if (state.busy || !state.id) return;
+  if (state.busy) return;
+  if (!state.id) {                                  // Install before Connect: connect first
+    state.busy = true; refreshButtons();
+    try { if (!state.updater) await connect(); else await scan(); } finally { state.busy = false; refreshButtons(); }
+    if (!state.id) return showFailure(fw.name, Object.assign(new Error("No FM-1 found. Plug it in with a data cable, close other MIDI apps, and try again."), { code: "notfound" }));
+  }
   let pkg;
   try {
-    const r = await fetch("firmware/" + fw.file);
-    if (!r.ok) throw new Error(`could not download ${fw.file} (${r.status})`);
-    pkg = await openPackage(await r.arrayBuffer(), fw);   // checks SHA-256 and identity against the list
+    // The URL carries the start of the expected hash, so a changed file is a new URL and never an old cached copy of it.
+    // A mismatch is tried once more, bypassing every cache, before it is reported.
+    const get = async (retry) => {
+      const r = await fetch(`firmware/${fw.file}?v=${fw.sha256.slice(0, 12)}${retry ? "&r=" + Date.now() : ""}`, retry ? { cache: "reload" } : {});
+      if (!r.ok) throw new Error(`could not download ${fw.file} (${r.status})`);
+      return openPackage(await r.arrayBuffer(), fw);   // checks SHA-256 and identity against the list
+    };
+    try { pkg = await get(false); } catch (e) { if (e.code !== "hash") throw e; pkg = await get(true); }
   } catch (e) { return showFailure(fw.name, e); }
   confirmAndRun(fw.channel === "test" ? `${fw.name} (test build ${fw.label})` : fw.name, pkg, { recovery: !!fw.recovery, verified: true });
 }
 
 $("localfile").onchange = async (ev) => {
   const f = ev.target.files[0]; ev.target.value = "";
-  if (!f || state.busy || !state.id) return;
+  if (!f || state.busy) return;
+  if (!state.id) { state.busy = true; try { if (!state.updater) await connect(); else await scan(); } finally { state.busy = false; } }
   try {
+    if (!state.id) throw Object.assign(new Error("No FM-1 found."), { code: "notfound" });
     const pkg = await openPackage(await f.arrayBuffer());
     if (!hasLoader(pkg.image) && !isStock(pkg.product)) {
       throw Object.assign(new Error(`${f.name}: no Felucca update loader in this package, and it is not M-VAVE's firmware. It cannot be installed from here.`), { code: "badpkg" });
@@ -225,25 +236,11 @@ $("localfile").onchange = async (ev) => {
 };
 
 function confirmAndRun(name, pkg, opt) {
-  const id = state.id;
-  const model = pkg.product.split("_")[0];
-  const inLoader = isOta(id);
+  const id = state.id, model = pkg.product.split("_")[0], inLoader = isOta(id);
   if (!inLoader && !id.open && id.model !== model) {
     return showFailure(name, Object.assign(new Error(`the connected device is ${id.text}, the package is for ${pkg.product}`), { code: "model" }));
   }
-  const body = $("c-body");
-  body.replaceChildren(
-    h("p", {}, h("strong", {}, name), ` (${pkg.product})`),
-    h("p", { class: "mono" }, "SHA-256 " + pkg.sha256),
-    h("p", {}, opt.verified ? "The file matches the checksum in the firmware list." : "This file is not from the firmware list: its checksum was not compared with anything."),
-    h("p", {}, inLoader ? `The FM-1 is waiting in update mode (${id.text}); the write will be finished.` : `The FM-1 now runs ${id.text}; it will be replaced.`),
-    opt.recovery ? "" : h("p", {}, "If the new firmware misbehaves, 'Back to stock' on this page restores M-VAVE's."));
-  $("c-title").textContent = opt.recovery ? "Restore firmware" : "Install firmware";
-  $("c-ok").checked = false; $("c-go").disabled = true;
-  $("c-ok").onchange = () => { $("c-go").disabled = !$("c-ok").checked; };
-  $("c-cancel").onclick = () => $("confirm").close();
-  $("c-go").onclick = () => { $("confirm").close(); run(name, pkg, inLoader); };
-  $("confirm").showModal();
+  run(name, pkg, inLoader);
 }
 
 const guard = (e) => { e.preventDefault(); e.returnValue = ""; };
@@ -266,7 +263,7 @@ async function run(name, pkg, inLoader) {
       case "mode": setProgress(15, k && a === "fast" ? "Writing: only changed sectors (fast install)…" : "Writing the whole package (classic install)…"); break;
       case "write": {
         const pct = c !== undefined ? c : Math.min(99, (b * 100) / (2 * len));
-        setProgress(15 + pct * 0.8, `Writing… ${Math.floor(pct)}%. Do not unplug.`);
+        setProgress(15 + pct * 0.8, `Writing… ${Math.floor(pct)}%.`);
         break;
       }
       case "reboot": setProgress(97, "Restarting the FM-1…"); break;
@@ -283,6 +280,7 @@ async function run(name, pkg, inLoader) {
     $("p-end").replaceChildren(h("div", { class: "ok-msg" }, `${name} is installed. The FM-1 restarted on ${pkg.product}.`));
   } catch (e) {
     $("p-title").textContent = "The install did not finish";
+    if (e.code === "mismatch") e.message += ` (the package says ${pkg.product}; the FM-1 may be running the new firmware, check its screen)`;
     $("p-end").replaceChildren(failureBox(e));
     setProgress(0, e.message || String(e));
   } finally {
@@ -304,7 +302,7 @@ function failureBox(e) {
   return h("div", { class: "err" },
     h("strong", {}, msgs[code] || "Something went wrong."), " ",
     e.message && e.message !== msgs[code] ? h("div", { class: "mono" }, e.message) : "",
-    resumable.has(code) ? h("p", {}, "If the FM-1 is now in update mode, it is safe: unplug and replug it, press Scan again, and press Install on the same firmware to finish the write. Two failed starts in a row bring up SAFE MODE, which can always be installed over.") : "");
+    resumable.has(code) ? h("p", {}, "Replug the FM-1, press Scan again and Install the same firmware to finish.") : "");
 }
 
 function showFailure(name, e) {
