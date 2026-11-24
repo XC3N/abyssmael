@@ -176,11 +176,11 @@
         {
           "label": "profile-stress",
           "version": "profile",
-          "commit": "463ec54",
+          "commit": "db7ea9a+39dd325",
           "built": "2026-11-24",
           "file": "abyssmael/test/profile-stress/abyssmael.fwsc",
-          "sha256": "9cdac9e598d9bb2b9ec491b846864f4d782132790fbf227e9c26fc027652f9d7",
-          "notes": "Core branch 463ec54 (includes PR #2): GLO page 4 (BUILD AND CPU), K2 right starts the fixed stress test (factory scene with all instruments and effects, the same chords every 2 s), K2 left stops it. Read V, R and C about 30 s after starting. No browser player."
+          "sha256": "69052903f6c011b1e28b10ff90ba1cc80ad8389c47499d62d8eddd54cbc31e61",
+          "notes": "Core branch db7ea9a (stress test, 3.5 s gates) with PR #2 head 39dd325 (peaks held until K1): GLO page 4 (BUILD AND CPU), K2 right starts the fixed stress test, K2 left stops it, K1 clears the peaks. Read V, R and C about 30 s after starting. No browser player."
         },
         {
           "label": "test",
