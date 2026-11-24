@@ -98,7 +98,19 @@
             "get": 6
           }
         ]
-      }
+      },
+      "tests": [
+        {
+          "label": "test",
+          "version": "0.5 (test)",
+          "commit": "d81cb1f",
+          "built": "2026-11-23",
+          "file": "abyssmael/test/test/abyssmael.fwsc",
+          "sha256": "c3fe1916432dc32d84919ebda439f27c47a1a1ecdb79214e4c691c0cf99609e9",
+          "wasm": "abyssmael/test/test/sim.wasm",
+          "notes": "main plus the open PRs (#3, #2, #1), merged as branch test-build"
+        }
+      ]
     },
     {
       "id": "stock-v15",

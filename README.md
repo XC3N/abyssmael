@@ -26,3 +26,17 @@ interrupted install resumes (device left in update mode); SAFE MODE and "Back to
 contributors). Stock V15 package: M-VAVE, fm1_open (Apache-2.0).
 
 Live site: https://xc3n.github.io/abyssmael/ (deployed by .github/workflows/pages.yml on every push to main).
+
+## Test builds (main / test)
+An entry's top-level fields are its **main** build (the default). Test builds (profile builds, PR builds) go in an optional `tests` array on the
+same entry; the page then shows a main / test switch with a list of the test builds, in both the Browser version and the install sections.
+Put each build's files under `firmware/<id>/test/<label>/` (`abyssmael.fwsc`, `sim.wasm`, optionally `preview.mp3`) and add:
+
+    "tests": [{
+      "label": "profile-pr3", "version": "0.5-pr3", "commit": "<git sha>", "built": "2026-11-23",
+      "file": "abyssmael/test/profile-pr3/abyssmael.fwsc", "sha256": "<sha256 of the .fwsc>",
+      "wasm": "abyssmael/test/profile-pr3/sim.wasm", "notes": "what is different about this build"
+    }]
+
+`file` and `sha256` are required (the page refuses a file whose hash or `FM-1_5800`-style identity differs from the entry's `product`); without `wasm` the
+build is installable but has no browser player. Everything else (name, description, controls, player layout) comes from the main entry.
