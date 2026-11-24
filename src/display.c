@@ -210,57 +210,36 @@ static void draw(void)
             cv_rect(x, 136, 54, 3, C_DIM);
             cv_rect(x, 136, (int32_t)(ref_frac(ref) * 54u / 200u), 3, TCOL[cur_trk]);
         }
-    } else if (pg == PG_GLO && sub == 3u) {  /* BUILD AND CPU: big numbers, for reading across the desk */
-        const char *tag = APP_TAGLINE, *rest = tag;
-        char head[16], c[8];
-        uint32_t n = 0, cpu = plat_cpu_pct();
-        int32_t w;
-        while (*rest && *rest != ' ' && n < 15u)
-            head[n++] = *rest++;
-        head[n] = 0;
-        while (*rest == ' ')
-            rest++;
-        cv_text(8, 0, &FONT_L, head, C_WHITE);
-        if (*rest) {
-            const felucca_font_t *f = text_w(&FONT_M, rest) <= 224 ? &FONT_M : &FONT_B;
-            cv_text(8, 34, f, rest, C_HI);
-        }
+    } else if (pg == PG_GLO && sub == 3u) {  /* BUILD AND CPU: the biggest type, a line each: now (peak); the build at the foot */
+        static const char *const RL[6] = {"SEQ", "SETUP", "VOICES", "FX", "TOTAL", "AVG"};
+        uint32_t cpu = plat_cpu_pct(), v[6], pk[6];
         if (now - ui.cpu_at > 5000u)            /* the page was not on screen: start again */
             ui.cpu_max = 0, ui.cpu_avg = (uint8_t)cpu;
         ui.cpu_at = now;
         if (cpu > ui.cpu_max)
             ui.cpu_max = (uint8_t)cpu;
-        ui.cpu_avg = (uint8_t)((ui.cpu_avg * 7u + cpu + 4u) / 8u);   /* about every half second: some 4 s */
-        t[0] = 0;
-        text_cat(t, "C ");
-        int_text((int32_t)cpu, c);
-        text_cat(t, c);
-        text_cat(t, "%");
-        cv_text(8, 66, &FONT_L, t, cpu > 80u ? C_AMB : C_WHITE);
-        t[0] = 0;
-        text_cat(t, "AVG ");
-        int_text((int32_t)ui.cpu_avg, c);
-        text_cat(t, c);
-        text_cat(t, "  MAX ");
-        int_text((int32_t)ui.cpu_max, c);
-        text_cat(t, c);
-        cv_text(8, 100, &FONT_M, t, C_GRAY);
-#ifdef AMB_PROFILE
-        {   /* S sequencer, B voice setup, V voices, F effects: % of the block time */
-            static const char L[4] = {'S', 'B', 'V', 'F'};
+        ui.cpu_avg = (uint8_t)((ui.cpu_avg * 7u + cpu + 4u) / 8u);   /* drawn about twice a second: some 4 s */
+        for (k = 0; k < 4u; k++)
+            v[k] = prof_pct[k], pk[k] = prof_max[k];
+        v[4] = cpu, pk[4] = ui.cpu_max;
+        v[5] = ui.cpu_avg, pk[5] = 0;
+        for (k = 0; k < 6u; k++) {
+            char c[8];
+            int32_t y = (int32_t)k * 23, x;
             t[0] = 0;
-            for (k = 0; k < 4u; k++) {
-                char l[3] = {L[k], ' ', 0};
-                text_cat(t, l);
-                int_text((int32_t)prof_pct[k], c);
+            int_text((int32_t)v[k], c);
+            text_cat(t, c);
+            if (k < 5u) {
+                text_cat(t, " (");
+                int_text((int32_t)pk[k], c);
                 text_cat(t, c);
-                text_cat(t, "  ");
+                text_cat(t, ")");
             }
-            cv_text(8, 130, &FONT_M, t, C_HI);
+            x = 232 - text_w(&FONT_M, t);
+            cv_text(8, y, &FONT_M, RL[k], k >= 4u ? C_WHITE : C_GRAY);
+            cv_text(x, y, &FONT_M, t, k == 4u && cpu > 80u ? C_AMB : C_HI);
         }
-#else
-        cv_text(8, 134, &FONT_S, "S B V F: PROFILE BUILDS ONLY", C_DIM);
-#endif
+        cv_text(8, 142, &FONT_S, APP_TAGLINE, C_GRAY);
     } else if (pg == PG_HOME && sub == 0u) {
         for (k = 0; k < NTRK; k++) {
             int32_t y = (int32_t)k * 16;
@@ -350,24 +329,7 @@ static void draw(void)
     text_cat(t, " ");
     text_cat(t, SCALE_NAME[sc.gp[GP_SCALE]]);
     cv_text(232 - text_w(&FONT_XS, t), 2, &FONT_XS, t, C_HI);
-#ifdef AMB_PROFILE
-    {   /* S sequencer, B voice setup, V voices, F effects: % of the block time (a profile build) */
-        static const char L[4] = {'S', 'B', 'V', 'F'};
-        uint32_t q;
-        char pr[40];
-        pr[0] = 0;
-        for (q = 0; q < 4u; q++) {
-            char c[8], l[2] = {L[q], 0};
-            int_text((int32_t)prof_pct[q], c);
-            text_cat(pr, l);
-            text_cat(pr, c);
-            text_cat(pr, " ");
-        }
-        cv_text(8, 18, &FONT_XS, pr, C_GRAY);
-    }
-#else
     cv_text(8, 18, &FONT_XS, "KEYS ARE CHROMATIC. SEL: SCALE", C_DIM);
-#endif
     cv_blit(0, 206);
 }
 
