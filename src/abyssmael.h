@@ -18,8 +18,6 @@
 #define NTRK 6u
 #define VPT 4u                           /* voices per track */
 #define NVOICE (NTRK * VPT)
-/* Profile build: shows each stage's share of the block time in the footer (see core.c). On only in profile builds. */
-#define AMB_PROFILE 1
 #define VOICE_CAP 16u                    /* sounding at once, all tracks: the CPU's budget */
 
 /* ------------------------------------------------------------------ tables --- */
@@ -188,9 +186,9 @@ extern volatile uint8_t trk_active[NTRK];
 extern volatile uint8_t amb_asleep;
 uint32_t sleep_minutes(uint32_t gp_sleep);   /* 0 .. 120 */
 uint32_t sleep_left_s(void);                 /* seconds to go (0 when off) */
-#ifdef AMB_PROFILE
-extern volatile uint8_t prof_pct[4];     /* seq, engines_block, engines_run, fx: % of the block time (profile builds only) */
-#endif
+/* the CPU share of each render stage, in % of the block time: seq, engines_block, engines_run (both cores), fx. prof_pct is
+ * smoothed, prof_max a peak that decays in a few seconds. The total is plat_cpu_pct(). (core.c) */
+extern volatile uint8_t prof_pct[4], prof_max[4];
 extern voice_t vc[NVOICE];
 extern motif_t mo[NTRK];
 extern uint8_t seq_pos[NTRK], seq_cur[NTRK];

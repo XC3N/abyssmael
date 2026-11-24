@@ -11,10 +11,10 @@ volatile uint8_t playing = 1, cur_trk;
 volatile uint32_t notes_played, drift_count;
 volatile uint8_t trk_active[NTRK];       /* voices sounding per track (the screen) */
 
-#ifdef AMB_PROFILE
-/* build with -DAMB_PROFILE: each stage's share of the block's time, in percent, smoothed (the footer shows it) */
-volatile uint8_t prof_pct[4];                /* seq, engines_block, engines_run (both cores, wall), fx */
-static float prof_acc[4];
+/* each stage's share of the block's time, in percent: prof_pct smoothed, prof_max a peak that decays over a few seconds
+ * (the STATS page shows both; five timer reads a block, about nothing) */
+volatile uint8_t prof_pct[4], prof_max[4];                /* seq, engines_block, engines_run (both cores, wall), fx */
+static float prof_acc[4], prof_pk[4];
 
 static void render_block(int32_t *lr, uint32_t n, uint32_t master_q12)
 {
@@ -33,18 +33,13 @@ static void render_block(int32_t *lr, uint32_t n, uint32_t master_q12)
     for (i = 0; i < 4u; i++) {
         prof_acc[i] += (100.0f * w[i] / span - prof_acc[i]) * 0.02f;
         prof_pct[i] = (uint8_t)(prof_acc[i] > 255.0f ? 255.0f : prof_acc[i]);
+        {
+            float now = 100.0f * w[i] / span;
+            prof_pk[i] = now > prof_pk[i] ? now : prof_pk[i] * 0.998f;
+            prof_max[i] = (uint8_t)(prof_pk[i] > 255.0f ? 255.0f : prof_pk[i]);
+        }
     }
 }
-#else
-static void render_block(int32_t *lr, uint32_t n, uint32_t master_q12)
-{
-    seq_block(n);
-    engines_block(n);
-    engines_run(n);
-    fx_block(lr, n, master_q12);
-    engines_flush();
-}
-#endif
 
 /* ------------------------------------------------------------ sleep timer --- */
 volatile uint8_t amb_asleep;
