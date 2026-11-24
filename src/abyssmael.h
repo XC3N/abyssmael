@@ -139,7 +139,7 @@ static const uint8_t PG_BTN[NPG] = {B_HOME, B_EDIT, B_ENV, B_LFO, B_SEQ, B_ARP, 
 static const uint8_t PG_N[NPG] = {2, 2, 2, 2, 3, 2, 3, 4, 1, 1};   /* GLO's fourth page is on black key 4 (BUILD AND CPU) */
 static const char *const PG_TITLE[NPG][4] = {
     {"HOME", "SESSION"}, {"SOUND A", "SOUND B"}, {"AMP ENVELOPE", "FILTER"}, {"LFO 1", "LFO 2"}, {"SEQUENCER", "", "PATTERN"},
-    {"ARPEGGIO", "ARP SOURCE"}, {"TRACK MIX", "DELAY", "SHIMMER REVERB"}, {"KEY AND TIME", "DRIFT", "AGE", "BUILD AND CPU"}, {"MUTE AND SOLO"}, {"KEY, SCALE, KEYS"}};
+    {"ARPEGGIO", "ARP SOURCE"}, {"TRACK MIX", "DELAY", "SHIMMER REVERB"}, {"KEY AND TIME", "DRIFT", "AGE", "NOW (PEAK) K1 CLEARS"}, {"MUTE AND SOLO"}, {"KEY, SCALE, KEYS"}};
 /* the pages' short names, for the black keys */
 static const char *const PG_SHORT[NPG][4] = {
     {""}, {"SND A", "SND B"}, {"AMP", "FILT"}, {"LFO1", "LFO2"}, {"SEQ", "", "PATT"}, {"ARP", "SRC"}, {"MIX", "DELAY", "VERB"},
