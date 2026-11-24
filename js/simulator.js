@@ -28,7 +28,7 @@ export class Simulator {
 
   async start() {
     this.root.replaceChildren(h("p", {}, "Loading…"));
-    const bytes = await (await fetch(this.base + this.cfg.wasm)).arrayBuffer();
+    const bytes = await (await fetch(this.base + this.cfg.wasm + "?v=" + String(this.fw.sha256 || "").slice(0, 12))).arrayBuffer();
     const module = await WebAssembly.compile(bytes);
     const ctx = this.ctx = new AudioContext({ sampleRate: SR, latencyHint: "interactive" });
     await ctx.audioWorklet.addModule("js/sim-worklet.js");

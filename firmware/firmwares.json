@@ -131,39 +131,48 @@
         {
           "label": "test",
           "version": "0.5 (test)",
-          "commit": "0b572c3",
+          "commit": "b86a2d7",
           "built": "2026-11-24",
           "file": "abyssmael/test/test/abyssmael.fwsc",
-          "sha256": "9259691e2c38d7d2eff3fd4bc05222ae4f964d6d43375586cd5b3fa2e64c9766",
+          "sha256": "47e8d213748fc345faa9277d5cca0cb67d8b85671aea785bac1e81aead3c43c2",
           "wasm": "abyssmael/test/test/sim.wasm",
           "notes": "main plus the open PRs (#3, #2, #1), merged as branch test-build"
         },
         {
-          "label": "profile-fx2",
+          "label": "profile-fx3",
           "version": "profile",
-          "commit": "83b7b70",
+          "commit": "9e33213+02a4615",
           "built": "2026-11-24",
-          "file": "abyssmael/test/profile-fx2/abyssmael.fwsc",
-          "sha256": "2f0c11ca6d25643a059b0646dfa8c77ed2f8f7d6db5bd6e7f826ad3c80793bf5",
-          "notes": "FX PR #3 head 0098618 as is (reverb at half rate). CPU readout in the header (S B V F, then C). No browser player."
+          "file": "abyssmael/test/profile-fx3/abyssmael.fwsc",
+          "sha256": "9ae5bf62edc8f9553d0ebd1c6287009568df3aa3a88aabbe1447942cdc0ccc22",
+          "notes": "FX PR #3 head 02a4615 as is (reverb and delay at half rate). The CPU readout is on GLO page 4 (BUILD AND CPU). No browser player."
         },
         {
-          "label": "profile-fx2-nodelay",
+          "label": "profile-fx4",
           "version": "profile",
-          "commit": "83b7b70",
+          "commit": "9e33213+df1bc45",
           "built": "2026-11-24",
-          "file": "abyssmael/test/profile-fx2-nodelay/abyssmael.fwsc",
-          "sha256": "a0ce0e95a38692628fdcfe8b26354addd933eee163fc2b7165c1f27e93424b76",
-          "notes": "as profile-fx2 but the delay stage is skipped (FX_OFF_DELAY): no delay sound, for measuring only. CPU readout in the header (S B V F, then C). No browser player."
+          "file": "abyssmael/test/profile-fx4/abyssmael.fwsc",
+          "sha256": "91ebb14391f22b322b29f40132223692f0e00beb2ff24590dcace0161ec11c15",
+          "notes": "FX PR #3 head df1bc45 as is (hiss from pink-noise tables). CPU readout on GLO page 4 (BUILD AND CPU). No browser player."
         },
         {
-          "label": "profile-fx2-norev",
+          "label": "profile-fx5",
           "version": "profile",
-          "commit": "83b7b70",
+          "commit": "9e33213+383b693",
           "built": "2026-11-24",
-          "file": "abyssmael/test/profile-fx2-norev/abyssmael.fwsc",
-          "sha256": "24d40f0d8cf7ca88a19017c0aff7c8549aa2d6e276d46307ac4a8a4da764f359",
-          "notes": "as profile-fx2 but the reverb is skipped (FX_OFF_REVERB): no reverb sound, for measuring only. CPU readout in the header (S B V F, then C). No browser player."
+          "file": "abyssmael/test/profile-fx5/abyssmael.fwsc",
+          "sha256": "adb449c8d9f0b2c72d5564b5beebf345af6ecadaf6df48fdc6b605e9447d75a7",
+          "notes": "FX PR #3 head 383b693 as is (reverb at quarter rate). CPU readout on GLO page 4 (BUILD AND CPU). No browser player."
+        },
+        {
+          "label": "profile-fx5-norev",
+          "version": "profile",
+          "commit": "9e33213+383b693",
+          "built": "2026-11-24",
+          "file": "abyssmael/test/profile-fx5-norev/abyssmael.fwsc",
+          "sha256": "a870793929e505ee17b0a7cefd16eaf3d17a6db060d34697c0b91c4438de6ef0",
+          "notes": "as profile-fx5 with the reverb skipped (FX_OFF_REVERB); measuring only. CPU readout on GLO page 4 (BUILD AND CPU). No browser player."
         }
       ]
     },
