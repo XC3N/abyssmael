@@ -240,6 +240,8 @@ static void draw(void)
             char c[8];
             t[0] = 0;
             text_cat(t, APP_TAGLINE);
+            if (amb_stress)
+                text_cat(t, "  STRESS");
             text_cat(t, "  AVG ");
             int_text((int32_t)ui.cpu_avg, c);
             text_cat(t, c);

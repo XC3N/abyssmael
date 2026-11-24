@@ -196,6 +196,10 @@ extern volatile uint8_t trk_active[NTRK];
  * Waking, the main loop sets GP_SLEEP to 0. */
 #define SLEEP_FADE_S 60u
 extern volatile uint8_t amb_asleep;
+/* STRESS TEST for repeatable CPU readings: stress_set(1) loads a fixed scene (all six tracks, every instrument, the effects
+ * on) and the render fires the same chords every 2 s; stress_set(0) goes back to the saved scene. (core.c, app.c) */
+extern volatile uint8_t amb_stress;
+void stress_set(uint32_t on);
 uint32_t sleep_minutes(uint32_t gp_sleep);   /* 0 .. 120 */
 uint32_t sleep_left_s(void);                 /* seconds to go (0 when off) */
 /* the CPU share of each render stage, in % of the block time: seq, engines_block, engines_run (both cores), fx. prof_pct is
