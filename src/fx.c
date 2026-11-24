@@ -35,13 +35,20 @@ static float rv_mod, ps_hp, rv_dc[4];
 #define WOW_LEN 2048u                    /* the master's wow and flutter */
 static int16_t wow_l[WOW_LEN] PLAT_POOL, wow_r[WOW_LEN] PLAT_POOL;
 static uint32_t wow_w, wow_run;
-static float wow_ph, flut_ph, wow_rnd, age_lpl, age_lpr, hiss_b[3], hiss_lvl, crk, crk_k, crk_pan;
+static float wow_ph, flut_ph, wow_rnd, age_lpl, age_lpr, hiss_lvl, crk, crk_k, crk_pan;
 static float gain_now;
 /* the AGE layer's own state: dust density and its countdown, the right channel's hiss, rumble, the record's turn,
  * tape dropouts */
-static float dust_dens = 1.0f, crk_cnt = 1000.0f, hr_b, rumble_b, rev_ph, thump, drop_g = 1.0f, drop_t = 1.0f;
+static float dust_dens = 1.0f, crk_cnt = 1000.0f, rumble_b, rev_ph, thump, drop_g = 1.0f, drop_t = 1.0f;
 static uint32_t drop_blk;
 static int32_t rd_q[4], rd_stepq[4], wow_dq = 8 << 16, wow_stepq;   /* delays in samples, Q16 */
+/* the hiss is read from two tables of pink noise (made a slice at a time after power-on); each channel sums one read
+ * from each table, the tables have different lengths and the four readers start apart, so nothing repeats as a pair */
+#define NZ_A 20011u
+#define NZ_B 16381u
+static int16_t nz_a[NZ_A] PLAT_POOL, nz_b[NZ_B] PLAT_POOL;
+static uint32_t nz_n, na = 0u, nb = 0u, nc = 7777u, nd = 5555u;   /* nz_n: samples made so far; the readers */
+static float nz_f[3];
 static uint32_t fx_quiet;                /* blocks in a row with nothing coming in or going round */
 #define FX_IDLE_BLOCKS 280u              /* about 0.8 s: longer than the delay */
 /* "quiet" is a summed absolute level of 1.5e-3 (about -56 dB): the int16 lines keep a rounding floor of 5e-4 to 8e-4 */
@@ -99,9 +106,9 @@ static PLAT_RAM_CODE void fx_audio(int32_t *lr, uint32_t n, uint32_t master_q12)
     float rlen[4];
     float hiss = pct(sc.gp[GP_HISS]), crack = pct(sc.gp[GP_CRACKLE]), wow = pct(sc.gp[GP_WOW]), age = pct(sc.gp[GP_AGE]);
     float age_a = 1.0f - fm_expf(-6.2831853f * (18000.0f * fm_exp2f(-age * 3.0f)) / SR);
-    float hiss_g = hiss * hiss * 0.25f, rumble_g = crack * crack * 1.2f, crk_gap, pk = 0.0f;
+    float hiss_g = hiss * hiss * 0.25f, hiss_k, rumble_g = crack * crack * 1.2f, crk_gap, pk = 0.0f;
     float inv_n = 1.0f / (float)n;
-    uint32_t crk_on = crack >= 0.02f, hiss_on = hiss > 0.0f, idle = fx_quiet >= FX_IDLE_BLOCKS;
+    uint32_t crk_on = crack >= 0.02f, hiss_on = hiss > 0.0f && nz_n >= NZ_A + NZ_B, idle = fx_quiet >= FX_IDLE_BLOCKS;
     uint32_t wow_on = wow > 0.0f && !idle;
     dtone2 = dtone * (2.0f - dtone);          /* the delay's tone at half rate */
     dl_target *= 0.5f;                        /* in ticks */
@@ -145,6 +152,22 @@ static PLAT_RAM_CODE void fx_audio(int32_t *lr, uint32_t n, uint32_t master_q12)
             wow_stepq = (int32_t)((float)diff * inv_n);
         }
     }
+    /* the hiss tables: 512 samples a block until both are made (the hiss is silent till then) */
+    if (nz_n < NZ_A + NZ_B) {
+        for (k = 0; k < 512u && nz_n < NZ_A + NZ_B; k++, nz_n++) {
+            float pink = am_rnds(), v;
+            nz_f[0] = 0.997f * nz_f[0] + 0.029591f * pink;
+            nz_f[1] = 0.985f * nz_f[1] + 0.032534f * pink;
+            nz_f[2] = 0.950f * nz_f[2] + 0.048056f * pink;
+            v = fm_clampf(nz_f[0] + nz_f[1] + nz_f[2] + pink * 0.05f, -1.9f, 1.9f) * 16384.0f;
+            if (nz_n < NZ_A)
+                nz_a[nz_n] = (int16_t)v;
+            else
+                nz_b[nz_n - NZ_A] = (int16_t)v;
+        }
+    }
+    hiss_lvl += ((0.6f + 0.4f * wow_rnd) - hiss_lvl) * (0.00001f * (float)n);   /* the level wanders, once a block */
+    hiss_k = hiss_g * hiss_lvl * (0.7071f / 16384.0f);
     /* AGE, once a block: the dust's density wanders, the record turns (33 rpm), the tape drops out now and then */
     {
         dust_dens += (1.0f - dust_dens) * 0.002f + (am_rndf() - 0.5f) * 0.03f;
@@ -305,21 +328,20 @@ static PLAT_RAM_CODE void fx_audio(int32_t *lr, uint32_t n, uint32_t master_q12)
             l *= drop_g;
             r *= drop_g;
 #ifndef FX_OFF_NOISE
-            if (hiss_on || crk_on)
+            if (crk_on)
                 pink = am_rnds();
-            /* hiss: pink-ish noise (three one-poles), its level wandering slowly; the right channel mixes in its own
-             * darker noise so the two sides are not copies */
+            /* hiss: a read from each table, summed, per channel */
             if (hiss_on) {
-                float white2 = am_rnds();
-                hiss_b[0] = 0.997f * hiss_b[0] + 0.029591f * pink;
-                hiss_b[1] = 0.985f * hiss_b[1] + 0.032534f * pink;
-                hiss_b[2] = 0.950f * hiss_b[2] + 0.048056f * pink;
-                hs = hiss_b[0] + hiss_b[1] + hiss_b[2] + pink * 0.05f;
-                hr_b += (white2 - hr_b) * 0.35f;
-                hsr = 0.6f * hs + 0.8f * hr_b;
-                hiss_lvl += ((0.6f + 0.4f * wow_rnd) - hiss_lvl) * 0.00001f;
-                hs *= hiss_g * hiss_lvl;
-                hsr *= hiss_g * hiss_lvl;
+                hs = (float)((int32_t)nz_a[na] + (int32_t)nz_b[nb]) * hiss_k;
+                hsr = (float)((int32_t)nz_a[nc] + (int32_t)nz_b[nd]) * hiss_k;
+                if (++na >= NZ_A)
+                    na = 0u;
+                if (++nb >= NZ_B)
+                    nb = 0u;
+                if (++nc >= NZ_A)
+                    nc = 0u;
+                if (++nd >= NZ_B)
+                    nd = 0u;
             }
             /* crackle: dust. The gaps between clicks bunch up (a squared random gap), the density wanders, the
              * clicks are mostly small with the odd pop, and each is a short one-sided decay */
@@ -373,10 +395,6 @@ static PLAT_RAM_CODE void fx_audio(int32_t *lr, uint32_t n, uint32_t master_q12)
     ps_hp = no_denorm(ps_hp);
     age_lpl = no_denorm(age_lpl);
     age_lpr = no_denorm(age_lpr);
-    hiss_b[0] = no_denorm(hiss_b[0]);
-    hiss_b[1] = no_denorm(hiss_b[1]);
-    hiss_b[2] = no_denorm(hiss_b[2]);
-    hr_b = no_denorm(hr_b);
     rumble_b = no_denorm(rumble_b);
     thump = no_denorm(thump);
     crk = no_denorm(crk);
