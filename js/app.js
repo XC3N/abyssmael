@@ -194,7 +194,7 @@ const msgs = {
   lost: "The USB connection dropped.",
   noloader: "The update loader did not appear.",
   noreturn: "The FM-1 did not come back after the install. Power-cycle it (unplug and replug), then press Scan again.",
-  mismatch: "The install finished, but the FM-1 reports a different firmware than expected.",
+  mismatch: "The write finished, but the FM-1 reports a different firmware ID than the package. This is not the file checksum: the file was written as downloaded.",
   badreq: "The FM-1 asked for data outside the package. The install was stopped.",
   hash: "The downloaded file does not match its checksum, so nothing was sent to the FM-1. Reload the page (Ctrl+Shift+R) and try again: your browser or the site cache probably has an old copy of the firmware list.",
   badpkg: "This file is not a valid FM-1 package.",
@@ -288,6 +288,7 @@ async function run(name, pkg, inLoader) {
     $("p-end").replaceChildren(h("div", { class: "ok-msg" }, `${name} is installed. The FM-1 restarted on ${pkg.product}.`));
   } catch (e) {
     $("p-title").textContent = "The install did not finish";
+    if (e.code === "mismatch") e.message += ` (the package says ${pkg.product}; the FM-1 may be running the new firmware, check its screen)`;
     $("p-end").replaceChildren(failureBox(e));
     setProgress(0, e.message || String(e));
   } finally {
