@@ -58,6 +58,8 @@ int32_t plat_enc(int r) { int32_t v = enc_acc[r]; enc_acc[r] = 0; return v; }
 void plat_leds(uint32_t b, uint32_t k) { lit_b = b; lit_k = k; dim_b = dim_k = 0; }
 void plat_lights(uint32_t b, uint32_t k, uint32_t db, uint32_t dk, int glow) { (void)glow; lit_b = b; lit_k = k; dim_b = db; dim_k = dk; }
 void plat_glow(int on) { (void)on; }
+void plat_lights_mid(uint32_t b, uint32_t k) { (void)b; (void)k; }
+uint32_t plat_ticks24(void) { return 0; }   /* the profile build's timings: not meaningful in the browser */
 int plat_midi_in(uint32_t *pkt, int *port) {
     static uint32_t rd;
     if (rd == midi_n) { rd = midi_n = 0; return 0; }
