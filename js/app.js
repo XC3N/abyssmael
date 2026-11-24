@@ -179,8 +179,8 @@ $("sim-close").onclick = () => $("sim").close();
 $("sim").addEventListener("close", () => { sim?.stop(); sim = null; $("sim-body").replaceChildren(); });
 
 function refreshButtons() {
-  for (const b of document.querySelectorAll("[data-install]")) b.disabled = !state.id || state.busy;
-  $("localfile").disabled = !state.id || state.busy;
+  for (const b of document.querySelectorAll("[data-install]")) b.disabled = state.busy || !supported;
+  $("localfile").disabled = state.busy || !supported;
 }
 
 // ----------------------------------------------------------------- install
@@ -201,7 +201,12 @@ const msgs = {
 const resumable = new Set(["stopped", "lost", "noloader", "noreturn"]);
 
 async function startInstall(fw) {
-  if (state.busy || !state.id) return;
+  if (state.busy) return;
+  if (!state.id) {                                  // Install before Connect: connect first
+    state.busy = true; refreshButtons();
+    try { if (!state.updater) await connect(); else await scan(); } finally { state.busy = false; refreshButtons(); }
+    if (!state.id) return showFailure(fw.name, Object.assign(new Error("No FM-1 found. Plug it in with a data cable, close other MIDI apps, and try again."), { code: "notfound" }));
+  }
   let pkg;
   try {
     // The URL carries the start of the expected hash, so a changed file is a new URL and never an old cached copy of it.
@@ -218,8 +223,10 @@ async function startInstall(fw) {
 
 $("localfile").onchange = async (ev) => {
   const f = ev.target.files[0]; ev.target.value = "";
-  if (!f || state.busy || !state.id) return;
+  if (!f || state.busy) return;
+  if (!state.id) { state.busy = true; try { if (!state.updater) await connect(); else await scan(); } finally { state.busy = false; } }
   try {
+    if (!state.id) throw Object.assign(new Error("No FM-1 found."), { code: "notfound" });
     const pkg = await openPackage(await f.arrayBuffer());
     if (!hasLoader(pkg.image) && !isStock(pkg.product)) {
       throw Object.assign(new Error(`${f.name}: no Felucca update loader in this package, and it is not M-VAVE's firmware. It cannot be installed from here.`), { code: "badpkg" });
