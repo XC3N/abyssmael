@@ -727,12 +727,16 @@ static void input(void)
                     dk |= 1u << BK[k];
             }
             if (ui.page == PG_SEQ && ui.sub[PG_SEQ] == 2u && sc.tp[cur_trk][TP_SMODE] == 2u && !ui.note_edit) {
-                uint32_t on = sc.son[cur_trk];   /* the steps: lit when on, the step playing blinks the other way */
-                for (k = 0; k < sc.tp[cur_trk][TP_SLEN]; k++)
-                    if (((on >> k) & 1u) != (k == seq_cur[cur_trk] && playing))
+                uint32_t on = sc.son[cur_trk], blink = (plat_ms() / 110u) & 1u;
+                for (k = 0; k < sc.tp[cur_trk][TP_SLEN]; k++)   /* the steps: lit when on, dim when off; the step playing blinks */
+                    if (playing && k == seq_cur[cur_trk]) {
+                        if (blink)
+                            lk |= 1u << WK[k];
+                    } else if ((on >> k) & 1u) {
                         lk |= 1u << WK[k];
-                    else
+                    } else {
                         dk |= 1u << WK[k];
+                    }
             } else {
                 for (k = 0; k < 16u; k++)
                     if (k % len == 0u)
