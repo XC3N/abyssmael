@@ -34,6 +34,47 @@ void app_init(void)
     scene_use(am_store.cur);
 }
 
+/* the stress test's scene: the saved factory scene with every track sounding, every instrument, the sends and the effects up */
+void stress_set(uint32_t on)
+{
+    static uint8_t keep;                     /* the scene to go back to */
+    uint32_t t;
+    scene_t s;
+    amb_stress = 0;
+    app_panic();
+    if (!on) {
+        scene_use(keep);
+        playing = 1;
+        return;
+    }
+    keep = am_store.cur;
+    scene_factory(&s, 0);                    /* the factory scene, not a saved slot: the same load every time */
+    sc = s;
+    sc_dirty = 0;
+    for (t = 0; t < NTRK; t++) {
+        sc.tp[t][TP_INST] = (uint8_t)(t % NINST);
+        sc.tp[t][TP_LEVEL] = 55;
+        sc.tp[t][TP_DSEND] = 70;
+        sc.tp[t][TP_RSEND] = 70;
+        sc.tp[t][TP_SUS] = 70;
+        sc.tp[t][TP_REL] = 60;
+        sc.tp[t][TP_MUTE] = 0;
+        sc.tp[t][TP_SOLO] = 0;
+    }
+    sc.gp[GP_DMIX] = 60;
+    sc.gp[GP_DFB] = 50;
+    sc.gp[GP_RSIZE] = 70;
+    sc.gp[GP_RSHIM] = 60;
+    sc.gp[GP_RMIX] = 70;
+    sc.gp[GP_HISS] = 30;
+    sc.gp[GP_CRACKLE] = 20;
+    sc.gp[GP_WOW] = 30;
+    sc.gp[GP_AGE] = 30;
+    sc.gp[GP_SLEEP] = 0;
+    playing = 0;                             /* the sequencers stay quiet: the render fires the notes */
+    amb_stress = 1;
+}
+
 void app_ui_init(void)
 {
     lcd_fill(0, 0, 240, 240, C_BLACK);
@@ -137,6 +178,8 @@ int app_expect(const char *what, int *got)
         *got = sc.tp[cur_trk][TP_EDIR];
     else if (!strcmp(what, "arpsrc"))
         *got = sc.tp[cur_trk][TP_ARPSRC];
+    else if (!strcmp(what, "stress"))
+        *got = amb_stress;
     else if (!strcmp(what, "asleep"))
         *got = amb_asleep;
     else if (!strcmp(what, "sleep_min"))

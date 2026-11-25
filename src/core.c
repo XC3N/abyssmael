@@ -24,10 +24,36 @@ static void prof_add(uint32_t i, float now)
     prof_max[i] = (uint8_t)(prof_pk[i] > 255.0f ? 255.0f : prof_pk[i]);
 }
 
+/* STRESS TEST (stress_set in app.c): every 2 s, 3 voices on each of the 6 tracks, with fixed notes and gates, so the voices
+ * always sit at the cap with all the effects on (gates of 3.5 s overlap the next chord). The same load every time: CPU readings can be compared between builds. */
+volatile uint8_t amb_stress;
+static uint32_t st_cnt, st_n;
+
+static void stress_tick(uint32_t n)
+{
+    static const uint8_t BASE[NTRK] = {36, 48, 55, 60, 64, 67};
+    uint32_t t, j;
+    if (!amb_stress) {
+        st_cnt = 0;
+        st_n = 0;
+        return;
+    }
+    if (st_cnt == 0u) {
+        for (t = 0; t < NTRK; t++)
+            for (j = 0; j < 3u; j++)
+                voice_start(t, (int32_t)BASE[t] + (int32_t)((st_n + j) % 3u) * 5, 0.8f, (int32_t)(3.5f * SR));
+        st_n++;
+    }
+    st_cnt += n;
+    if (st_cnt >= 2u * (uint32_t)SR)
+        st_cnt = 0;
+}
+
 static void render_block(int32_t *lr, uint32_t n, uint32_t master_q12)
 {
     uint32_t t0 = plat_ticks24(), t1, t2, t3, t4, i;
     float span = (float)n * (24000000.0f / SR), w[4];
+    stress_tick(n);
     seq_block(n);
     t1 = plat_ticks24();
     engines_block(n);

@@ -684,6 +684,10 @@ static void input(void)
             if (ui.page == PG_GLO && ui.sub[PG_GLO] == 3u) {   /* BUILD AND CPU: K1 clears the peak */
                 if (k == 0u)
                     ui.cpu_max = 0, ui.pk[0] = ui.pk[1] = ui.pk[2] = ui.pk[3] = ui.pk[4] = 0;
+                else if (k == 1u) {              /* K2: the fixed stress test on (right) or off (left) */
+                    stress_set(e > 0);
+                    app_say("STRESS TEST", e > 0 ? "ON" : "OFF");
+                }
                 continue;
             }
             ref_turn(page_ref(ui.page, ui.sub[ui.page], k), e);
