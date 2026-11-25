@@ -110,16 +110,6 @@
           "notes": "Core branch 14993bf: voice cap 12, a table sine in the voices and a CPU guard on the voice cap (lowers it when the render load stays above 88%, raises it under 60%), PR #2 merged in. GLO page 4, K2 right starts the stress test, K2 left stops it, K1 clears the peaks. Read V, R and C about 30 s after starting. No browser player."
         },
         {
-          "label": "test",
-          "version": "0.5 (test)",
-          "commit": "71f5459",
-          "built": "2026-11-24",
-          "file": "abyssmael/test/test/abyssmael.fwsc",
-          "sha256": "8647647126fdd754687a1fc3cf32cb4e2f0f06cd83083fa5d7a8b194a17bf2ff",
-          "wasm": "abyssmael/test/test/sim.wasm",
-          "notes": "main plus the open PRs (#3, #2, #1), merged as branch test-build"
-        },
-        {
           "label": "profile-stress-cap12",
           "version": "profile",
           "commit": "d071f80",
@@ -127,6 +117,16 @@
           "file": "abyssmael/test/profile-stress-cap12/abyssmael.fwsc",
           "sha256": "b31ab4229382ee96bcecb8e09d8a9ec8de9bd182e5736e29a820360e105a5d3c",
           "notes": "Voice cap 12 by itself (core d071f80, PR #2 merged in): the step before the table sine and CPU guard. GLO page 4, K2 right starts the stress test. Read V, R and C about 30 s after starting. No browser player."
+        },
+        {
+          "label": "test",
+          "version": "0.5 (test)",
+          "commit": "bc2fa50",
+          "built": "2026-11-25",
+          "file": "abyssmael/test/test/abyssmael.fwsc",
+          "sha256": "885356951becc9b2bfd9f791c963fd7931859fb4f748dc1f2a365406cad3931e",
+          "wasm": "abyssmael/test/test/sim.wasm",
+          "notes": "main plus the open PRs (#6), merged as branch test-build"
         }
       ]
     },
