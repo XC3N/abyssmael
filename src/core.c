@@ -118,7 +118,11 @@ void app_render(int32_t *lr, uint32_t n, uint32_t master_q12)
         lr += 2u * b;
         n -= b;
     }
-    prof_add(4, 100.0f * (float)(plat_ticks24() - t0) / ((float)n0 * (24000000.0f / SR)));
+    {
+        float pct = 100.0f * (float)(plat_ticks24() - t0) / ((float)n0 * (24000000.0f / SR));
+        prof_add(4, pct);
+        engines_load((uint32_t)pct);
+    }
 }
 
 void app_panic(void)
