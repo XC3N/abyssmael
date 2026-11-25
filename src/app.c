@@ -158,8 +158,8 @@ int app_expect(const char *what, int *got)
         *got = ui.mix_mode;
     else if (!strcmp(what, "smode"))
         *got = sc.tp[cur_trk][TP_SMODE];
-    else if (!strcmp(what, "note_edit"))
-        *got = ui.note_edit;
+    else if (!strcmp(what, "adv"))
+        *got = ui.adv;
     else if (!strcmp(what, "cursor"))
         *got = ui.cursor;
     else if (!strcmp(what, "hn0") || !strcmp(what, "hn1") || !strcmp(what, "sn0") || !strcmp(what, "sn1"))
