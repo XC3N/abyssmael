@@ -39,6 +39,7 @@ void app_ui_init(void)
     lcd_fill(0, 0, 240, 240, C_BLACK);
     ui.page = PG_HOME;
     ui.hold_step = -1;
+    ui.oct = 3;
     ui.redraw = 1;
 }
 
@@ -46,6 +47,31 @@ void app_frame(void)
 {
     static uint32_t last_n, last_t, last_key;
     uint32_t now = plat_ms();
+    static uint8_t shown_asleep, woke;
+    if (amb_asleep) {                        /* the sleep timer ran out: the engine is stopped; screen and lights off */
+        if (!shown_asleep) {
+            shown_asleep = 1;
+            app_panic();
+            playing = 0;
+            lcd_fill(0, 0, 240, 240, C_BLACK);
+            plat_lights(0, 0, 0, 0, 0);
+            plat_lights_mid(0, 0);
+        }
+        if (plat_keys() | plat_buttons()) {  /* any key or button wakes it; the press itself does nothing */
+            amb_asleep = 0;
+            shown_asleep = 0;
+            woke = 1;
+            sc.gp[GP_SLEEP] = 0;
+            ui.redraw = 1;
+        }
+        return;
+    }
+    if (woke) {                              /* wait for the waking press to end */
+        if (plat_keys() | plat_buttons())
+            return;
+        woke = 0;
+        ui.keys = ui.btn = 0;
+    }
     input();
     ann_tick(now);
     if (notes_played != last_n || now - last_t > 500u || sc.gp[GP_KEY] != last_key ||
@@ -103,6 +129,20 @@ int app_expect(const char *what, int *got)
         *got = sc.tp[cur_trk][TP_DEJAVU];
     else if (!strcmp(what, "arp"))
         *got = sc.tp[cur_trk][TP_ARPON] ? sc.tp[cur_trk][TP_ARPPAT] + 1 : 0;
+    else if (!strcmp(what, "cd0") || !strcmp(what, "cd1"))   /* the condition of hit or step 0 / 1 */
+        *got = sc.cd[cur_trk][what[2] - '0'];
+    else if (!strcmp(what, "edrift"))
+        *got = sc.tp[cur_trk][TP_EDRIFT];
+    else if (!strcmp(what, "edir"))
+        *got = sc.tp[cur_trk][TP_EDIR];
+    else if (!strcmp(what, "arpsrc"))
+        *got = sc.tp[cur_trk][TP_ARPSRC];
+    else if (!strcmp(what, "asleep"))
+        *got = amb_asleep;
+    else if (!strcmp(what, "sleep_min"))
+        *got = (int)sleep_minutes(sc.gp[GP_SLEEP]);
+    else if (!strcmp(what, "sleep_left"))
+        *got = (int)sleep_left_s();
     else if (!strcmp(what, "scene"))
         *got = am_store.cur;
     else if (!strcmp(what, "voices")) {

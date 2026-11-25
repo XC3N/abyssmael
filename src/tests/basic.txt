@@ -82,6 +82,56 @@ wav euclid.wav
 wait 8000
 wavstop
 shot euclid_play.png
+# EUCL: hold a hit, K1 its note, K2 its condition; a tap makes it a rest and back
+key w0 down
+wait 40
+spin K2 1
+wait 40
+expect cd0 1
+spin K1 2
+wait 40
+key w0 up
+wait 40
+expect hn0 6
+shot euclid_cond.png
+key w0 down
+wait 40
+shot euclid_hold.png
+key w0 up
+wait 40
+tapkey w1
+wait 40
+expect hn1 31
+tapkey w1
+wait 40
+expect hn1 0
+# EUCL SEQ 2: DRIFT on K4; pattern page: DIRECTION on K3
+tapkey b1
+wait 40
+expect page 41
+spin K4 5
+wait 40
+expect edrift 10
+tapkey b2
+wait 40
+spin K3 2
+wait 40
+expect edir 2
+# ARP 2: ARP FROM on K1
+tap ARP
+wait 40
+tapkey b1
+wait 40
+expect page 51
+spin K1 2
+wait 40
+expect arpsrc 2
+shot arp_src.png
+tap SEQ
+wait 40
+tapkey b2
+wait 40
+expect page 42
 # STEP: white keys are the steps
 tapkey b7
 wait 40
@@ -162,15 +212,51 @@ expect scene 3
 wav void.wav
 wait 20000
 wavstop
-# scale mode off: the old footer
+# SEL opens the SCALE page: K3 turns scale mode off and on
 tap SEL
+wait 40
+expect page 90
+expect scale_mode 1
+shot scale_page.png
+spin K3 -1
 wait 40
 expect scale_mode 0
 shot noscale.png
-tap SEL
+spin K3 1
+wait 40
+expect scale_mode 1
+tap GLO
+wait 40
 tap PLAY
 wait 30
 expect playing 0
 tapkey b9
 wait 60
 expect dirty 0
+# SLEEP TIMER on HOME 2: K1 sets the minutes (OFF, 5, 10 ...)
+tap HOME
+wait 40
+tap HOME
+wait 40
+expect page 1
+expect sleep_min 0
+spin K1 1
+wait 40
+expect sleep_min 5
+spin K1 2
+wait 40
+expect sleep_min 15
+shot sleep.png
+spin K1 -9
+wait 40
+expect sleep_min 0
+# GLO has a fourth page, BUILD AND CPU, on black key 4
+tap GLO
+wait 40
+tapkey b3
+wait 40
+expect page 73
+shot info.png
+tapkey b0
+wait 40
+expect page 70
