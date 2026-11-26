@@ -312,6 +312,22 @@ static void draw(void)
             cv_rect(x, 136, 54, 3, C_DIM);
             cv_rect(x, 136, (int32_t)(ref_frac(ref) * 54u / 200u), 3, C_HI);
         }
+    } else if (pg == PG_EDIT) {              /* big look (proposal): four tiles, each filled from the bottom by its value */
+        for (k = 0; k < 4u; k++) {
+            uint32_t ref = page_ref(pg, sub, k), f = ref_frac(ref);   /* 0..200 */
+            int32_t x = 1 + (int32_t)(k & 1u) * 120, y = (int32_t)(k >> 1) * 81, w = 118, h = 79, fh = (int32_t)f * h / 200;
+            uint16_t c = TCOL[cur_trk], dimc = (uint16_t)((c >> 1) & 0x7BEFu);   /* half the track colour */
+            const felucca_font_t *fn = &FONT_L;
+            cv_rect(x, y, w, h, C_LINE);
+            cv_rect(x, y + h - fh, w, fh, dimc);
+            if (fh)
+                cv_rect(x, y + h - fh, w, 2, c);          /* the level's edge */
+            cv_text(x + 6, y + 3, &FONT_XS, ref_name(ref), C_WHITE);
+            ref_text(ref, t);
+            if (text_w(fn, t) > w - 12)
+                fn = &FONT_M;
+            cv_text(x + (w - text_w(fn, t)) / 2, y + 30, fn, t, C_WHITE);
+        }
     } else {
         for (k = 0; k < 4u; k++) {
             uint32_t ref = page_ref(pg, sub, k);
