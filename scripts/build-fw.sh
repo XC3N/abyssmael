@@ -22,6 +22,7 @@ SHA=$(git -C "$REPO" rev-parse --short HEAD 2>/dev/null || echo local)
 TAG="v$VER${BUILD_LABEL:+ $BUILD_LABEL} $SHA"
 sed -i "s|^#define AMB_BUILD_TAG .*|#define AMB_BUILD_TAG \"$TAG\"|" "$FM1_BASE/$APP/app.h"
 echo "splash: $TAG"
+mkdir -p "$OUT"; echo "$TAG" > "$OUT/tag.txt"
 cd "$FM1_BASE"
 mkdir -p "$OUT"
 if [ "$MODE" = host ] || [ "$MODE" = all ]; then
