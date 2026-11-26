@@ -250,6 +250,7 @@ static void draw(void)
             int_text((int32_t)ui.cpu_avg, c);
             text_cat(t, c);
             cv_text(8, 142, &FONT_S, t, C_GRAY);
+            tag_drawn = APP_TAGLINE[0] == 'v';
         }
     } else if (pg == PG_HOME && sub == 0u) {
         for (k = 0; k < NTRK; k++) {

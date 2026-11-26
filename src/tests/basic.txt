@@ -256,6 +256,8 @@ wait 40
 tapkey b3
 wait 40
 expect page 73
+wait 700
+expect buildtag 1
 shot info.png
 tapkey b0
 wait 40
