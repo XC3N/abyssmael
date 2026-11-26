@@ -3,8 +3,9 @@
  * It reads the scene and the UI's state and draws with fm1-base's gfx.c (cv_*). Part of app.c's unity build. */
 static void draw(void)
 {
-    static const uint16_t TCOL[NTRK] = {RGB(90, 150, 220), RGB(140, 110, 220), RGB(230, 190, 90), RGB(110, 200, 150),
-                                        RGB(200, 120, 110)};
+    /* the tonal voices (1-3) warm, the background voices (4, 5) cool */
+    static const uint16_t TCOL[NTRK] = {RGB(235, 130, 95), RGB(240, 195, 90), RGB(225, 140, 190), RGB(90, 150, 220),
+                                        RGB(80, 195, 185)};
     char t[32];
     uint32_t k, now = plat_ms(), pg = ui.page, sub = ui.sub[pg];
     /* the header: the track and the page, or a message */
@@ -21,7 +22,7 @@ static void draw(void)
         cv_rect(0, 0, 4, 36, TCOL[cur_trk]);
         cv_text(10, 2, &FONT_B, t, C_WHITE);
         for (k = 0; k < NTRK; k++) {         /* the six tracks, mid-header: the current one in its colour */
-            int32_t x = 86 + (int32_t)k * 14;
+            int32_t x = 86 + (int32_t)k * 14 + (k >= 3u ? 8 : 0);   /* a gap between the tonal and background voices */
             char d[2] = {(char)('1' + k), 0};
             cv_rect(x, 3, 12, 14, k == cur_trk ? TCOL[k] : C_LINE);
             cv_text(x + 4, 4, &FONT_T, d, k == cur_trk ? C_BLACK : track_audible(k) ? C_GRAY : C_DIM);
@@ -37,7 +38,7 @@ static void draw(void)
         cv_text(232 - text_w(&FONT_B, t), 2, &FONT_B, t, C_HI);
         cv_text(10, 20, &FONT_XS, page_title(pg, sub), C_GRAY);
         t[0] = 0;
-        text_cat(t, SCENE_NAME[am_store.cur]);
+        proj_name(am_store.cur, t);
         if (sc_dirty)
             text_cat(t, " *");
         {                                    /* the load and the tempo go up here, whatever the footer shows */
@@ -252,6 +253,36 @@ static void draw(void)
             cv_text(8, 141, &FONT_S, t, C_GRAY);
             tag_drawn = APP_TAGLINE[0] == 'v';
         }
+    } else if (pg == PG_SAV && sub == 0u) {  /* the projects: four factory (locked), six of yours; K1 moves */
+        for (k = 0; k < NLIST; k++) {
+            int32_t y = (int32_t)k * 16;
+            char nm[12], n[4] = {(char)('0' + (k + 1u) / 10u), (char)('0' + (k + 1u) % 10u), 0, 0};
+            uint32_t have = k < NFACT || proj_saved(k);
+            if (n[0] == '0')
+                n[0] = ' ';
+            proj_name(k, nm);
+            if (k == ui.proj)
+                cv_rect(0, y, 240, 15, C_LINE);
+            if (k == am_store.cur)
+                cv_rect(2, y + 3, 4, 9, sc_dirty ? C_AMB : C_HI);
+            cv_text(12, y, &FONT_XS, n, C_DIM);
+            cv_text(36, y, &FONT_XS, nm, have ? (k == ui.proj ? C_WHITE : C_GRAY) : C_DIM);
+            if (k < NFACT)
+                cv_text(232 - text_w(&FONT_XS, "LOCKED"), y, &FONT_XS, "LOCKED", C_DIM);
+        }
+    } else if (pg == PG_SAV) {               /* NAME: the eight letters of the project the list is on; K1 the place, K2 the letter */
+        char nm[12], one[2] = {0, 0};
+        uint32_t i;
+        proj_name(ui.proj, nm);
+        cv_text(8, 4, &FONT_XS, ui.proj < NFACT ? "FACTORY: LOCKED" : "NAME", C_GRAY);
+        for (i = 0; i < NAMELEN; i++) {
+            int32_t x = 8 + (int32_t)i * 28;
+            one[0] = ui.proj >= NFACT && ui.proj < NLIST && am_store.name[ui.proj - NFACT][i] ? am_store.name[ui.proj - NFACT][i] : ' ';
+            cv_rect(x, 40, 24, 3, i == ui.npos ? C_HI : C_LINE);
+            cv_text(x + 6, 16, &FONT_B, one, i == ui.npos ? C_WHITE : C_GRAY);
+        }
+        cv_text(8, 60, &FONT_XS, "K1 PLACE   K2 LETTER", C_DIM);
+        cv_text(8, 76, &FONT_XS, "OK SAVES THE NAME", C_DIM);
     } else if (pg == PG_HOME && sub == 0u) {
         for (k = 0; k < NTRK; k++) {
             int32_t y = (int32_t)k * 16;
@@ -310,9 +341,8 @@ static void draw(void)
             a = slot(k, &arg, &lbl, &lit);
             switch (a) {                      /* the colours say what a key is: pages, track, a choice, MIX */
             case S_NONE: bright = dim = C_LINE; break;
-            case S_SUB: bright = RGB(79, 209, 197); dim = RGB(43, 122, 116); break;
-            case S_TRK: case S_MTRK: bright = TCOL[arg]; dim = (uint16_t)(TCOL[arg] & 0x7BEFu) >> 1; break;
-            case S_TPREV: case S_TNEXT: case S_CURP: case S_CURN: bright = RGB(90, 150, 220); dim = RGB(50, 85, 125); break;
+            case S_TRK: case S_MTRK: bright = TCOL[arg]; dim = (uint16_t)((TCOL[arg] >> 1) & 0x7BEFu); break;
+            case S_CURP: case S_CURN: bright = RGB(90, 150, 220); dim = RGB(50, 85, 125); break;
             case S_MIX: bright = C_WHITE; dim = C_GRAY; break;
             default: bright = RGB(255, 200, 87); dim = RGB(138, 109, 46); break;
             }

@@ -50,6 +50,11 @@ static const char *const ARP_PAT[4] = {"UP", "DOWN", "UP DOWN", "RANDOM"};
 static const char *const OFF_ON[2] = {"OFF", "ON"};
 static const char *const MOVE_NAME[4] = {"FIFTH", "FOURTH", "STEP", "ANY"};
 static const char *const THEME_NAME[5] = {"GREEN", "AMBER", "CYAN", "RED", "MONO"};
+static const uint8_t TRACK_ROLE[NTRK] = {I_BELL, I_PLUCK, I_PAD, I_DRONE, I_TEXTURE};   /* tonal: 1-3, background: 4-5 */
+#define NFACT 4u                         /* the factory projects: in the code, locked */
+#define NUSER 6u                         /* your projects: in the store */
+#define NLIST (NFACT + NUSER)            /* the list; cur = NLIST is an untitled new project */
+#define NAMELEN 8u
 static const char *const SCENE_NAME[4] = {"DEEP", "GLASS", "TIDE", "VOID"};
 static const char *const SEQ_MODE[3] = {"GENERATOR", "EUCLID", "STEP SEQ"};
 static const char *const SEQ_MODE_S[3] = {"GEN", "EUCL", "STEP"};
@@ -133,17 +138,17 @@ static const pdesc_t GPD[NGP] = {
 
 /* the pages: button, its pages, four values each (a track value, or G(...) for a global one) */
 #define G(x) (0x80u | (x))
-enum { PG_HOME, PG_EDIT, PG_ENV, PG_LFO, PG_SEQ, PG_ARP, PG_FX, PG_GLO, PG_MIX, PG_SCALE, NPG };
-static const char *const PG_NAME[NPG] = {"HOME", "EDIT", "ENV", "LFO", "SEQ", "ARP", "FX", "GLO", "MIX", "SCALE"};
-static const uint8_t PG_BTN[NPG] = {B_HOME, B_EDIT, B_ENV, B_LFO, B_SEQ, B_ARP, B_FX, B_GLO, 0xFFu, B_SEL};   /* MIX: a black key */
-static const uint8_t PG_N[NPG] = {2, 2, 2, 2, 3, 2, 3, 4, 1, 1};   /* GLO's fourth page is on black key 4 (BUILD AND CPU) */
+enum { PG_HOME, PG_EDIT, PG_ENV, PG_LFO, PG_SEQ, PG_ARP, PG_FX, PG_GLO, PG_MIX, PG_SCALE, PG_SAV, NPG };
+static const char *const PG_NAME[NPG] = {"HOME", "EDIT", "ENV", "LFO", "SEQ", "ARP", "FX", "GLO", "MIX", "SCALE", "SAV"};
+static const uint8_t PG_BTN[NPG] = {B_HOME, B_EDIT, B_ENV, B_LFO, B_SEQ, B_ARP, B_FX, B_GLO, 0xFFu, B_SEL, B_SAVE};   /* MIX: a black key */
+static const uint8_t PG_N[NPG] = {2, 2, 2, 2, 3, 2, 3, 4, 1, 1, 2};   /* GLO's fourth page is on black key 4 (BUILD AND CPU) */
 static const char *const PG_TITLE[NPG][4] = {
     {"HOME", "SESSION"}, {"SOUND A", "SOUND B"}, {"AMP ENVELOPE", "FILTER"}, {"LFO 1", "LFO 2"}, {"SEQUENCER", "", "PATTERN"},
-    {"ARPEGGIO", "ARP SOURCE"}, {"TRACK MIX", "DELAY", "SHIMMER REVERB"}, {"KEY AND TIME", "DRIFT", "AGE", "NOW (PEAK) K1 CLEARS"}, {"MUTE AND SOLO"}, {"KEY, SCALE, KEYS"}};
+    {"ARPEGGIO", "ARP SOURCE"}, {"TRACK MIX", "DELAY", "SHIMMER REVERB"}, {"KEY AND TIME", "DRIFT", "AGE", "NOW (PEAK) K1 CLEARS"}, {"MUTE AND SOLO"}, {"KEY, SCALE, KEYS"}, {"PROJECTS", "NAME"}};
 /* the pages' short names, for the black keys */
 static const char *const PG_SHORT[NPG][4] = {
     {""}, {"SND A", "SND B"}, {"AMP", "FILT"}, {"LFO1", "LFO2"}, {"SEQ", "", "PATT"}, {"ARP", "SRC"}, {"MIX", "DELAY", "VERB"},
-    {"KEY", "DRIFT", "AGE", "INFO"}, {""}, {"SCALE"}};
+    {"KEY", "DRIFT", "AGE", "INFO"}, {""}, {"SCALE"}, {"LOAD", "NAME"}};
 static const uint8_t PG_REF[NPG][4][4] = {
     {{G(GP_DARK), G(GP_ACT), G(GP_SPACE), TP_LEVEL}, {G(GP_SLEEP), G(GP_TEMPO), G(GP_SWING), G(GP_DRIFT)}},
     {{TP_P0, TP_P1, TP_P2, TP_P3}, {TP_P4, TP_P5, TP_P6, TP_P7}},
@@ -157,9 +162,10 @@ static const uint8_t PG_REF[NPG][4][4] = {
      {G(GP_HISS), G(GP_CRACKLE), G(GP_WOW), G(GP_AGE)}},
     {{TP_LEVEL, TP_PAN, TP_DSEND, TP_RSEND}},
     {{G(GP_KEY), G(GP_SCALE), 0x60, 0x61}},   /* SCALE: 0x60 scale mode on/off, 0x61 the keys' octave (the UI's own) */
+    {{0x62, 0x62, 0x62, 0x62}, {0x63, 0x64, 0x63, 0x64}},   /* SAV: drawn by the page itself (0x62 the list, 0x63 the position, 0x64 the letter) */
 };
 
-#define STORE_MAGIC 0x414D4236u          /* "AMB6" (five tracks) */
+#define STORE_MAGIC 0x414D4237u          /* "AMB7" (projects) */
 
 /* SEQ pages 2 and 3: the track's mode's four values */
 static const uint8_t MODE_REF[3][4] = {{TP_DENS, TP_RANGE, TP_STEPS, TP_DEJAVU},
@@ -167,8 +173,9 @@ static const uint8_t MODE_REF[3][4] = {{TP_DENS, TP_RANGE, TP_STEPS, TP_DEJAVU},
                                        {TP_SLEN, TP_SDIR, TP_SCHANCE, TP_SMUT}};
 typedef struct {
     uint32_t magic;
-    uint8_t cur, saved, rsv[2];          /* the scene playing; which slots hold a saved scene (bits) */
-    scene_t slot[4];
+    uint8_t cur, saved, rsv[2];          /* the project playing (0-3 factory, 4-9 yours, NPROJ untitled); which of yours are saved (bits) */
+    char name[NUSER][NAMELEN];           /* your projects' names (A-Z, 0-9, space) */
+    scene_t slot[NUSER];
 } store_t;
 
 /* ------------------------------------------------------------------ shared --- */

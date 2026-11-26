@@ -10,24 +10,24 @@ wait 20000
 wavstop
 expect peak_db_min -30
 expect voices >0
-# HOME: black keys pick tracks (groups of three)
-tapkey b5
+# the first five black keys are the tracks, on every page: three tonal, two background
+tapkey b3
 wait 40
 expect track 3
 tapkey b0
 wait 40
 expect track 0
-# EDIT: pages on b0..b2, track on b3/b4, instruments on b5..b9
+# EDIT: the button again is the next page; tracks on b0..b4, instruments on b5..b9
+tap EDIT
+wait 40
+expect page 10
+tap EDIT
+wait 40
+expect page 11
 tap EDIT
 wait 40
 expect page 10
 tapkey b1
-wait 40
-expect page 11
-tapkey b0
-wait 40
-expect page 10
-tapkey b4
 wait 40
 expect track 1
 tapkey b6
@@ -53,7 +53,9 @@ wait 40
 expect dejavu 100
 shot seq_keys.png
 # EUCLID on the pattern page, notes for the hits
-tapkey b2
+tap SEQ
+wait 40
+tap SEQ
 wait 40
 expect page 42
 tapkey b6
@@ -71,11 +73,11 @@ expect cursor 1
 tapkey w7
 wait 40
 expect hn1 7
-tapkey b9
+tapkey b8
 wait 40
 expect cursor 3
 shot euclid_notes.png
-tapkey b8
+tapkey b7
 wait 40
 expect note_edit 0
 wav euclid.wav
@@ -106,13 +108,15 @@ tapkey w1
 wait 40
 expect hn1 0
 # EUCL SEQ 2: DRIFT on K4; pattern page: DIRECTION on K3
-tapkey b1
+tap SEQ
+wait 40
+tap SEQ
 wait 40
 expect page 41
 spin K4 5
 wait 40
 expect edrift 10
-tapkey b2
+tap SEQ
 wait 40
 spin K3 2
 wait 40
@@ -120,7 +124,7 @@ expect edir 2
 # ARP 2: ARP FROM on K1
 tap ARP
 wait 40
-tapkey b1
+tap ARP
 wait 40
 expect page 51
 spin K1 2
@@ -128,8 +132,6 @@ wait 40
 expect arpsrc 2
 shot arp_src.png
 tap SEQ
-wait 40
-tapkey b2
 wait 40
 expect page 42
 # STEP: white keys are the steps
@@ -157,7 +159,9 @@ expect smode 0
 # FX page 3 through its key
 tap FX
 wait 40
-tapkey b2
+tap FX
+wait 40
+tap FX
 wait 40
 expect page 62
 shot fx_keys.png
@@ -166,24 +170,24 @@ tapkey b10
 wait 40
 expect page 80
 tapkey b1
-tapkey b6
+tapkey b4
 wait 40
 expect mutes 18
 shot mix_mute.png
-tapkey b4
+tapkey b6
 wait 40
 expect mix_mode 1
-tapkey b5
+tapkey b3
 wait 40
 expect solos 8
 shot mix_solo.png
 wav solo.wav
 wait 6000
 wavstop
-tapkey b9
+tapkey b8
 wait 40
 expect solos 0
-tapkey b8
+tapkey b7
 wait 40
 expect mutes 0
 tapkey b10
@@ -196,22 +200,61 @@ expect page 80
 key b10 up
 wait 40
 expect page 62
-# GLO: scenes on b5..b8
-tap GLO
+# SAV: the list (four factory, locked; six of yours), K1 moves, b5 LOAD, b6 NEW, b7 SAVE, b8 DEL, b9 NAME
+tap SAVE
 wait 40
-tapkey b6
+expect page 100
+expect proj 0
+spin K1 1
+wait 40
+expect proj 1
+tapkey b5
 wait 100
 expect scene 1
-shot glo_keys.png
+shot sav.png
 wav glass.wav
 wait 20000
 wavstop
-tapkey b8
+spin K1 2
+wait 40
+tapkey b5
 wait 100
 expect scene 3
 wav void.wav
 wait 20000
 wavstop
+# a factory project is never overwritten: SAVE goes to the first free slot
+tapkey b7
+wait 100
+expect scene 4
+expect saved 1
+spin K1 -9
+wait 40
+tapkey b8
+wait 40
+expect saved 1
+# NEW: all five tracks silent, an untitled project
+tapkey b6
+wait 100
+expect scene 10
+shot sav_new.png
+# the name: K1 the place, K2 the letter
+spin K1 4
+wait 40
+expect proj 4
+tapkey b9
+wait 40
+expect page 101
+spin K2 3
+wait 40
+shot sav_name.png
+tap SAVE
+wait 40
+expect page 100
+expect proj 4
+tapkey b8
+wait 100
+expect saved 0
 # SEL opens the SCALE page: K3 turns scale mode off and on
 tap SEL
 wait 40
@@ -230,9 +273,6 @@ wait 40
 tap PLAY
 wait 30
 expect playing 0
-tapkey b9
-wait 60
-expect dirty 0
 # SLEEP TIMER on HOME 2: K1 sets the minutes (OFF, 5, 10 ...)
 tap HOME
 wait 40
@@ -253,12 +293,16 @@ expect sleep_min 0
 # GLO has a fourth page, BUILD AND CPU, on black key 4
 tap GLO
 wait 40
-tapkey b3
+tap GLO
+wait 40
+tap GLO
+wait 40
+tap GLO
 wait 40
 expect page 73
 wait 700
 expect buildtag 1
 shot info.png
-tapkey b0
+tap GLO
 wait 40
 expect page 70
