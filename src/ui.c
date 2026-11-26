@@ -219,7 +219,7 @@ enum { S_NONE, S_SUB, S_TRK, S_TPREV, S_TNEXT, S_INST, S_ENV, S_LFO, S_SEQ, S_AR
        S_PLAY, S_LATCH, S_SPREV, S_SNEXT, S_MMODE, S_MTRK, S_MCLR, S_SCLR, S_MIX,
        S_SMODE, S_NOTES, S_RAND, S_REST, S_CURP, S_CURN };
 static const int8_t BK_TRK[11] = {0, 1, 2, -1, -1, 3, 4, 5, -1, -1, -1};
-static const char *const TRK_LBL[NTRK] = {"T1", "T2", "T3", "T4", "T5", "T6"};
+static const char *const TRK_LBL[NTRK] = {"T1", "T2", "T3", "T4", "T5"};
 static const char *const INST_SHORT[NINST] = {"DRN", "PAD", "BEL", "PLK", "TEX"};
 static const char *const INST_3[NINST] = {"DRN", "PAD", "BEL", "PLK", "TEX"};
 static const char *const ENV_LBL[5] = {"PERC", "PLCK", "SWEL", "PAD", "HOLD"};

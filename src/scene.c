@@ -27,11 +27,13 @@ static void track_inst(scene_t *s, uint32_t t, uint32_t inst)
 /* the four factory scenes */
 static void scene_factory(scene_t *s, uint32_t n)
 {
+    /* the five tracks: the first three are the dynamic, tonal voices (bell, pluck, pad), the last two the background (drone,
+     * texture) */
     static const uint8_t INST[4][NTRK] = {
-        {I_DRONE, I_PAD, I_BELL, I_PLUCK, I_TEXTURE, I_BELL},
-        {I_PAD, I_BELL, I_BELL, I_PLUCK, I_TEXTURE, I_DRONE},
-        {I_DRONE, I_PLUCK, I_PAD, I_BELL, I_TEXTURE, I_PLUCK},
-        {I_DRONE, I_TEXTURE, I_BELL, I_PAD, I_TEXTURE, I_DRONE}};
+        {I_BELL, I_PLUCK, I_PAD, I_DRONE, I_TEXTURE},
+        {I_BELL, I_PLUCK, I_PAD, I_DRONE, I_TEXTURE},
+        {I_BELL, I_PLUCK, I_PAD, I_DRONE, I_TEXTURE},
+        {I_BELL, I_PLUCK, I_PAD, I_DRONE, I_TEXTURE}};
     static const uint8_t KEY[4] = {9, 4, 2, 1}, SCALE[4] = {1, 4, 2, 3}, TEMPO[4] = {70, 84, 76, 60};
     /* per track: density, rate, length, range, level, delay send, reverb send, octave */
     static const uint8_t GEN[NINST][8] = {

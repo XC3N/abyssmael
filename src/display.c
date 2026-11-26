@@ -4,7 +4,7 @@
 static void draw(void)
 {
     static const uint16_t TCOL[NTRK] = {RGB(90, 150, 220), RGB(140, 110, 220), RGB(230, 190, 90), RGB(110, 200, 150),
-                                        RGB(200, 120, 110), RGB(170, 170, 180)};
+                                        RGB(200, 120, 110)};
     char t[32];
     uint32_t k, now = plat_ms(), pg = ui.page, sub = ui.sub[pg];
     /* the header: the track and the page, or a message */
