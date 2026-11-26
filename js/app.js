@@ -104,8 +104,9 @@ function buildsOf(fw) {
   const main = { ...rest, channel: "main", label: "main" };
   const list = (tests || []).filter((t) => t.file && t.sha256).map((t, i) => {
     const b = { ...rest, ...t, channel: "test", label: t.label || "test " + (i + 1), preview: t.preview };
-    if (rest.sim || t.sim || t.wasm) b.sim = { ...(rest.sim || {}), ...(t.sim || {}), ...(t.wasm ? { wasm: t.wasm } : {}) };
-    if (!b.sim?.wasm) delete b.sim;
+    // a test build has a player only with its own wasm: never the main build's (that would play the wrong code)
+    if (t.wasm || t.sim?.wasm) b.sim = { ...(rest.sim || {}), ...(t.sim || {}), ...(t.wasm ? { wasm: t.wasm } : {}) };
+    else delete b.sim;
     return b;
   });
   return { main, tests: list };
@@ -123,7 +124,7 @@ function picker(fw, need) {
   const seg = (label, on, fn) => { const b = h("button", { type: "button", class: "seg" + (on ? " on" : ""), role: "radio", "aria-checked": String(on) }, label); b.onclick = fn; return b; };
   const row = h("div", { class: "picker", role: "radiogroup", "aria-label": "Build" },
     seg("main", k === "main", () => { selected[fw.id] = "main"; renderLists(); }),
-    seg("test", k !== "main", () => { if (k === "main") { selected[fw.id] = usable[0][1]; renderLists(); } }));
+    seg("test", k !== "main", () => { if (k === "main") { selected[fw.id] = (usable.find(([b]) => b.label === "test") || usable[usable.length - 1])[1]; renderLists(); } }));
   if (k !== "main") {
     const sel = h("select", { "aria-label": "Test build" }, usable.map(([b, i]) => h("option", { value: String(i) }, b.label + " · " + b.version)));
     sel.value = String(k);

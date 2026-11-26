@@ -2,6 +2,7 @@
 // The firmware entry in firmwares.json has a "sim" block: { wasm, knobs:[{label,enc,get}], buttons:[{label,id,get?}], keys, firstNote, status }
 // or, for a firmware whose sim draws its own screen, { wasm, panel: true, keys, firstNote, status }: the FM-1's whole panel
 // (the screen, the 7 encoders, the 14 buttons and the keys, lit as the firmware lights them: sim_get 7..10).
+import { sha256Hex } from "./package.js";
 const SR = 44100;
 const NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 export const noteName = (n) => (n < 0 ? "-" : NAMES[n % 12] + (Math.floor(n / 12) - 1));
@@ -28,7 +29,10 @@ export class Simulator {
 
   async start() {
     this.root.replaceChildren(h("p", {}, "Loading…"));
-    const bytes = await (await fetch(this.base + this.cfg.wasm + "?v=" + String(this.fw.sha256 || "").slice(0, 12))).arrayBuffer();
+    // cache key: the wasm's own hash when the list has it, else the build's package hash
+    const key = String(this.fw.wasmSha256 || this.fw.sha256 || "").slice(0, 12);
+    const bytes = await (await fetch(this.base + this.cfg.wasm + "?v=" + key)).arrayBuffer();
+    this.wasmSha = await sha256Hex(new Uint8Array(bytes));
     const module = await WebAssembly.compile(bytes);
     const ctx = this.ctx = new AudioContext({ sampleRate: SR, latencyHint: "interactive" });
     await ctx.audioWorklet.addModule("js/sim-worklet.js");
@@ -40,8 +44,16 @@ export class Simulator {
     node.port.postMessage({ module, seed: (Math.random() * 1e9) | 0 });
     await ready;
     this.build();
+    this.root.prepend(this.buildLine());
     this.keyHandlers();
     this.draw();
+  }
+
+  // what is actually loaded, to check against the list and the build thread's commit
+  buildLine() {
+    const f = this.fw, bad = f.wasmSha256 && f.wasmSha256 !== this.wasmSha;
+    const parts = [f.channel === "test" ? "test: " + f.label : "main", f.version, f.commit ? "commit " + String(f.commit).slice(0, 7) : "", f.built ? "built " + f.built : "", "wasm " + this.wasmSha.slice(0, 8)].filter(Boolean);
+    return h("div", { class: "simbuild" + (bad ? " bad" : "") }, parts.join(" · ") + (bad ? "  ·  DOES NOT MATCH THE LIST (expected " + f.wasmSha256.slice(0, 8) + "): hard-refresh the page" : ""));
   }
 
   stop() {
