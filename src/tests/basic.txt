@@ -31,7 +31,33 @@ wait 40
 expect page 11
 tap EDIT
 wait 40
+expect page 12
+tap EDIT
+wait 40
 expect page 10
+spin PRESET 1
+wait 40
+expect page 11
+spin PRESET -1
+wait 40
+expect page 10
+tap ENV
+wait 40
+expect page 20
+shot bell_env1.png
+spin PRESET 1
+wait 40
+expect page 21
+shot bell_env2.png
+tap EDIT
+wait 40
+shot bell_metal.png
+spin PRESET 1
+wait 40
+shot bell_strike.png
+spin PRESET 1
+wait 40
+shot bell_filter.png
 tapkey b1
 wait 40
 expect track 1

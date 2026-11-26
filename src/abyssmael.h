@@ -146,7 +146,7 @@ static const char *const PG_NAME[NPG] = {"HOME", "EDIT", "ENV", "LFO", "SEQ", "A
 static const uint8_t PG_BTN[NPG] = {B_HOME, B_EDIT, B_ENV, B_LFO, B_SEQ, B_ARP, B_FX, B_GLO, 0xFFu, B_SEL, B_SAVE};   /* MIX: a black key */
 static const uint8_t PG_N[NPG] = {2, 2, 2, 2, 3, 2, 3, 4, 1, 2, 2};   /* GLO's fourth page is on black key 4 (BUILD AND CPU) */
 static const char *const PG_TITLE[NPG][4] = {
-    {"HOME", "SESSION"}, {"SOUND A", "SOUND B"}, {"AMP ENVELOPE", "FILTER"}, {"LFO 1", "LFO 2"}, {"SEQUENCER", "", "PATTERN"},
+    {"HOME", "SESSION"}, {"SOUND A", "SOUND B", "FILTER"}, {"AMP ENVELOPE", "FILTER"}, {"LFO 1", "LFO 2"}, {"SEQUENCER", "", "PATTERN"},
     {"ARPEGGIO", "ARP SOURCE"}, {"TRACK MIX", "DELAY", "SHIMMER REVERB"}, {"KEY AND TIME", "DRIFT", "AGE", "NOW (PEAK) K1 CLEARS"}, {"MUTE AND SOLO"}, {"KEY, SCALE, KEYS", "NOTE ENTRY"}, {"PROJECTS", "NAME"}};
 /* the pages' short names, for the black keys */
 static const char *const PG_SHORT[NPG][4] = {
@@ -154,7 +154,7 @@ static const char *const PG_SHORT[NPG][4] = {
     {"KEY", "DRIFT", "AGE", "INFO"}, {""}, {"SCALE", "ENTRY"}, {"LOAD", "NAME"}};
 static const uint8_t PG_REF[NPG][4][4] = {
     {{G(GP_DARK), G(GP_ACT), G(GP_SPACE), TP_LEVEL}, {G(GP_SLEEP), G(GP_TEMPO), G(GP_SWING), G(GP_DRIFT)}},
-    {{TP_P0, TP_P1, TP_P2, TP_P3}, {TP_P4, TP_P5, TP_P6, TP_P7}},
+    {{TP_P0, TP_P1, TP_P2, TP_P3}, {TP_P4, TP_P5, TP_P6, TP_P7}, {TP_CUT, TP_RES, TP_KEYT, TP_FENV}},   /* page 3: the bell only */
     {{TP_ATK, TP_DEC, TP_SUS, TP_REL}, {TP_CUT, TP_RES, TP_FENV, TP_KEYT}},
     {{TP_L1RATE, TP_L1DEP, TP_L1SHP, TP_L1TGT}, {TP_L2RATE, TP_L2DEP, TP_L2SHP, TP_L2TGT}},
     {{TP_RATE, TP_GATE, TP_OCT, TP_ACCENT}, {0}, {0}},   /* SEQ 2 and 3: the mode's (seq_ref) */
@@ -168,7 +168,7 @@ static const uint8_t PG_REF[NPG][4][4] = {
     {{0}},   /* SAV: drawn by the page itself */
 };
 
-#define STORE_MAGIC 0x414D4238u          /* "AMB8" (filter ADSR, on top of AMB7 projects) */
+#define STORE_MAGIC 0x414D4238u          /* "AMB8" (projects, filter ADSR) */
 
 /* SEQ pages 2 and 3: the track's mode's four values */
 static const uint8_t MODE_REF[3][4] = {{TP_DENS, TP_RANGE, TP_STEPS, TP_DEJAVU},
