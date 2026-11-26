@@ -76,7 +76,8 @@ enum {   /* a track's values */
     TP_SMODE, TP_EHITS, TP_ELEN, TP_EROT, TP_ECHANCE, TP_SLEN, TP_SDIR, TP_SCHANCE, TP_SMUT,
     TP_EDIR, TP_EDRIFT,
     TP_ARPON, TP_ARPRATE, TP_ARPPAT, TP_ARPGATE, TP_ARPSRC,
-    TP_LEVEL, TP_PAN, TP_DSEND, TP_RSEND, TP_MUTE, TP_SOLO, NTP
+    TP_LEVEL, TP_PAN, TP_DSEND, TP_RSEND, TP_MUTE, TP_SOLO,
+    TP_FATK, TP_FDEC, TP_FSUS, TP_FREL, NTP   /* the filter's own ADSR; ENV AMOUNT (TP_FENV) is its depth */
 };
 enum {   /* the scene's global values */
     GP_KEY, GP_SCALE, GP_TEMPO, GP_SWING, GP_DRIFT, GP_MOVE, GP_TUNE, GP_THEME,
@@ -122,6 +123,8 @@ static const pdesc_t TPD[NTP] = {
     {"ARP FROM", 0, 2, K_ENUM, 1, ARP_SRC},
     {"LEVEL", 0, 100, K_PCT, 2, 0}, {"PAN", 0, 100, K_PCT, 2, 0}, {"DELAY SEND", 0, 100, K_PCT, 2, 0},
     {"REVERB SEND", 0, 100, K_PCT, 2, 0}, {"MUTE", 0, 1, K_ENUM, 1, OFF_ON}, {"SOLO", 0, 1, K_ENUM, 1, OFF_ON},
+    {"FILTER ATTACK", 0, 100, K_PCT, 2, 0}, {"FILTER DECAY", 0, 100, K_PCT, 2, 0},
+    {"FILTER SUSTAIN", 0, 100, K_PCT, 2, 0}, {"FILTER RELEASE", 0, 100, K_PCT, 2, 0},
 };
 static const pdesc_t GPD[NGP] = {
     {"KEY", 0, 11, K_NOTE, 1, 0}, {"SCALE", 0, NSCALE - 1, K_ENUM, 1, SCALE_NAME}, {"TEMPO", 30, 200, K_BPM, 1, 0},
@@ -165,7 +168,7 @@ static const uint8_t PG_REF[NPG][4][4] = {
     {{0}},   /* SAV: drawn by the page itself */
 };
 
-#define STORE_MAGIC 0x414D4237u          /* "AMB7" (projects) */
+#define STORE_MAGIC 0x414D4238u          /* "AMB8" (projects, filter ADSR) */
 
 /* SEQ pages 2 and 3: the track's mode's four values */
 static const uint8_t MODE_REF[3][4] = {{TP_DENS, TP_RANGE, TP_STEPS, TP_DEJAVU},
@@ -183,9 +186,10 @@ typedef struct { uint8_t trk, note, vel, on; } kev_t;
 #define KS_LEN 1024u
 typedef struct {
     uint8_t on, trk, inst, stage;        /* stage: 1 attack, 2 decay, 3 sustain, 4 release */
+    uint8_t fstage;                      /* the filter envelope's stage, the same numbers */
     int16_t note;
     int32_t gate;                        /* samples until release; -1 held (a key) */
-    float inc, vel, pan, env, ienv;      /* ienv: the bell's index envelope; the pluck's excitation */
+    float inc, vel, pan, env, fe, ienv;   /* fe: the filter envelope */      /* ienv: the bell's index envelope; the pluck's excitation */
     float ph[4], drift, x1, x2, x3;
     float s1, s2;                        /* the filter */
     uint32_t age;
@@ -234,6 +238,7 @@ static inline int32_t amb_clamp(int32_t v, int32_t lo, int32_t hi) { return v < 
 /* a track's values worked out once a block (the engines' own) */
 typedef struct {
     float att, dec_k, sus, rel_k;
+    float fatt, fdec_k, fsus, frel_k;    /* the filter envelope, stepped once per block (the *_k are per block) */
     float g, a1, a2, a3, k;              /* the filter at the track's base cutoff (the envelope moves it per voice) */
     float cut_oct, fenv, keyt, res;
     float lvl, lvl0, dlvl, pan, dsend, rsend;   /* lvl0 + dlvl * i: the level ramped over the block (no clicks) */

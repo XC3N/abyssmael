@@ -1,12 +1,14 @@
 #!/bin/sh
 # Merge main and every open PR into a throwaway branch, build host+device+sim, and publish it as the site's "test" build
 # (firmware/abyssmael/test/test/ and the "test" entry in firmware/firmwares.json), pushing the merge as branch test-build.
+# SKIP_REFS="branch1 branch2": open PRs left out (one that conflicts and waits for its owner).
 # Needs gh, clang (wasm32), fm1-base (see BUILD.md). Run from a clean checkout of main.
 set -e
 cd "$(dirname "$0")/.."
 git checkout -q main && git pull -q --rebase
 git checkout -q -B test-all origin/main
 for ref in $(gh api 'repos/XC3N/abyssmael/pulls?state=open' --jq '.[].head.ref'); do
+  case " $SKIP_REFS " in *" $ref "*) echo "skipped $ref (SKIP_REFS)"; continue;; esac
   git fetch -q origin "$ref"
   if ! git merge --no-edit FETCH_HEAD >/dev/null 2>&1; then
     # the one conflict we resolve ourselves: PRs that each bump STORE_MAGIC (keep the highest); anything else stops the publish
