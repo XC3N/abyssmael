@@ -121,10 +121,10 @@
         {
           "label": "test",
           "version": "0.5 (test)",
-          "commit": "c8d38df",
+          "commit": "84cf902",
           "built": "2026-11-26",
           "file": "abyssmael/test/test/abyssmael.fwsc",
-          "sha256": "6a0071a24ce25b14d41a1523d892ebc7e4762cdd8934e6b003edc0e4c6d99ca0",
+          "sha256": "883e861b22c9bde633c2be14409b97d454894f5d7811436002aa268a1435196e",
           "wasm": "abyssmael/test/test/sim.wasm",
           "notes": "main plus the open PRs (#8, #7, #6), merged as branch test-build"
         }
