@@ -15,7 +15,7 @@
 #pragma GCC diagnostic ignored "-Wunused-variable"
 
 #define SR 44100.0f
-#define NTRK 6u
+#define NTRK 5u
 #define VPT 4u                           /* voices per track */
 #define NVOICE (NTRK * VPT)
 #define VOICE_CAP 16u                    /* sounding at once, all tracks: the CPU's budget */
@@ -159,7 +159,7 @@ static const uint8_t PG_REF[NPG][4][4] = {
     {{G(GP_KEY), G(GP_SCALE), 0x60, 0x61}},   /* SCALE: 0x60 scale mode on/off, 0x61 the keys' octave (the UI's own) */
 };
 
-#define STORE_MAGIC 0x414D4235u          /* "AMB5" (conditions, drift, arp source, sleep) */
+#define STORE_MAGIC 0x414D4236u          /* "AMB6" (five tracks) */
 
 /* SEQ pages 2 and 3: the track's mode's four values */
 static const uint8_t MODE_REF[3][4] = {{TP_DENS, TP_RANGE, TP_STEPS, TP_DEJAVU},
