@@ -19,7 +19,8 @@ rm -rf "$FM1_BASE/$APP"; mkdir -p "$FM1_BASE/$APP"; cp -r "$REPO/src/." "$FM1_BA
 VER=$(cat "$REPO/src/VERSION" 2>/dev/null || echo dev)
 SHA=$(git -C "$REPO" rev-parse --short HEAD 2>/dev/null || echo local)
 [ -n "$(git -C "$REPO" status --porcelain src 2>/dev/null)" ] && SHA="$SHA+"
-TAG="v$VER${BUILD_LABEL:+ $BUILD_LABEL} $SHA"
+N=$(git -C "$REPO" rev-list --count HEAD 2>/dev/null || echo 0)   # the build number: commits so far, so every build differs
+TAG="v$VER.$N${BUILD_LABEL:+ $BUILD_LABEL} $SHA"
 sed -i "s|^#define AMB_BUILD_TAG .*|#define AMB_BUILD_TAG \"$TAG\"|" "$FM1_BASE/$APP/app.h"
 echo "splash: $TAG"
 cd "$FM1_BASE"

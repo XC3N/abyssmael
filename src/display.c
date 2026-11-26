@@ -228,7 +228,7 @@ static void draw(void)
         v[5] = cpu, pk[5] = ui.cpu_max;          /* C - R is the rest of the audio interrupt */
         for (k = 0; k < 6u; k++) {
             char c[8];
-            int32_t y = (int32_t)k * 23, x;
+            int32_t y = (int32_t)k * 20, x;
             t[0] = 0;
             int_text((int32_t)v[k], c);
             text_cat(t, c);
@@ -242,14 +242,15 @@ static void draw(void)
         }
         {
             char c[8];
+            cv_text(8, 117, &FONT_M, APP_TAGLINE, C_WHITE);   /* the build, in the big type: what is running */
             t[0] = 0;
-            text_cat(t, APP_TAGLINE);
             if (amb_stress)
-                text_cat(t, "  STRESS");
-            text_cat(t, "  AVG ");
+                text_cat(t, "STRESS  ");
+            text_cat(t, "AVG ");
             int_text((int32_t)ui.cpu_avg, c);
             text_cat(t, c);
-            cv_text(8, 142, &FONT_S, t, C_GRAY);
+            cv_text(8, 141, &FONT_S, t, C_GRAY);
+            tag_drawn = APP_TAGLINE[0] == 'v';
         }
     } else if (pg == PG_HOME && sub == 0u) {
         for (k = 0; k < NTRK; k++) {
