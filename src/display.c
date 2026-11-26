@@ -4,7 +4,7 @@
 static void draw(void)
 {
     static const uint16_t TCOL[NTRK] = {RGB(90, 150, 220), RGB(140, 110, 220), RGB(230, 190, 90), RGB(110, 200, 150),
-                                        RGB(200, 120, 110), RGB(170, 170, 180)};
+                                        RGB(200, 120, 110)};
     char t[32];
     uint32_t k, now = plat_ms(), pg = ui.page, sub = ui.sub[pg];
     /* the header: the track and the page, or a message */
@@ -228,7 +228,7 @@ static void draw(void)
         v[5] = cpu, pk[5] = ui.cpu_max;          /* C - R is the rest of the audio interrupt */
         for (k = 0; k < 6u; k++) {
             char c[8];
-            int32_t y = (int32_t)k * 23, x;
+            int32_t y = (int32_t)k * 20, x;
             t[0] = 0;
             int_text((int32_t)v[k], c);
             text_cat(t, c);
@@ -242,14 +242,15 @@ static void draw(void)
         }
         {
             char c[8];
+            cv_text(8, 117, &FONT_M, APP_TAGLINE, C_WHITE);   /* the build, in the big type: what is running */
             t[0] = 0;
-            text_cat(t, APP_TAGLINE);
             if (amb_stress)
-                text_cat(t, "  STRESS");
-            text_cat(t, "  AVG ");
+                text_cat(t, "STRESS  ");
+            text_cat(t, "AVG ");
             int_text((int32_t)ui.cpu_avg, c);
             text_cat(t, c);
-            cv_text(8, 142, &FONT_S, t, C_GRAY);
+            cv_text(8, 141, &FONT_S, t, C_GRAY);
+            tag_drawn = APP_TAGLINE[0] == 'v';
         }
     } else if (pg == PG_HOME && sub == 0u) {
         for (k = 0; k < NTRK; k++) {

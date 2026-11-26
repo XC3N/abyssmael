@@ -16,7 +16,8 @@
 #include "abyssmael.h"
 
 
-static volatile uint8_t scale_mode = 1, latch;   /* the UI's modes (the render reads neither) */
+static volatile uint8_t scale_mode = 1, latch;
+static volatile uint8_t tag_drawn;   /* the build tag was drawn on GLO page 4 (a host test checks it: do not take the build off that page) */   /* the UI's modes (the render reads neither) */
 
 #include "scene.c"
 #include "ui.c"
@@ -178,6 +179,8 @@ int app_expect(const char *what, int *got)
         *got = sc.tp[cur_trk][TP_EDIR];
     else if (!strcmp(what, "arpsrc"))
         *got = sc.tp[cur_trk][TP_ARPSRC];
+    else if (!strcmp(what, "buildtag"))
+        *got = tag_drawn;
     else if (!strcmp(what, "stress"))
         *got = amb_stress;
     else if (!strcmp(what, "asleep"))
