@@ -3,10 +3,10 @@
     {
       "id": "abyssmael",
       "name": "Abyssmael",
-      "version": "0.4 (dev build)",
+      "version": "0.5 (dev build)",
       "product": "FM-1_5800",
       "file": "abyssmael/abyssmael.fwsc",
-      "sha256": "cdd2309f3d33bfa24f92b39290ddbb04c4c96edc8c978a3f3ee62a607f4611ac",
+      "sha256": "76f09a2ab21e7d555e3961e057a926201e74cb2a7732ff5bf89e1f91760d7e24",
       "description": "A six-track generative ambient firmware. Each track has its own instrument (DRONE, PAD, BELL, PLUCK, TEXTURE), envelope, filter, two LFOs, a generator and an arpeggio. A global delay, a shimmer reverb and an AGE layer (tape hiss, vinyl crackle, wow and flutter). Four scenes: DEEP, GLASS, TIDE, VOID. Plays from power-on.",
       "controls": [
         [
@@ -101,78 +101,32 @@
       },
       "tests": [
         {
-          "label": "pr2",
-          "version": "0.5 (PR #2)",
-          "commit": "f0a00aa",
+          "label": "profile-stress",
+          "version": "profile",
+          "commit": "14993bf",
           "built": "2026-11-24",
-          "file": "abyssmael/test/pr2/abyssmael.fwsc",
-          "sha256": "1f02dc64c325bf7176005da6d4cc32b093f6237bd1efc383d396e7b525d28db6",
-          "wasm": "abyssmael/test/pr2/sim.wasm",
-          "notes": "PR #2 alone (UI, SCALE page, HOME page 2 SESSION with the sleep timer; includes PR #1). Does not include PR #3 or the newest PR #4: those conflict with it, see the PR threads."
+          "file": "abyssmael/test/profile-stress/abyssmael.fwsc",
+          "sha256": "36239e7c69938f04dccc7e47a0997920bcc818dc0644c1d205f44c921d46027a",
+          "notes": "Core branch 14993bf: voice cap 12, a table sine in the voices and a CPU guard on the voice cap (lowers it when the render load stays above 88%, raises it under 60%), PR #2 merged in. GLO page 4, K2 right starts the stress test, K2 left stops it, K1 clears the peaks. Read V, R and C about 30 s after starting. No browser player."
         },
         {
-          "label": "profile-main",
+          "label": "profile-stress-cap12",
           "version": "profile",
-          "commit": "c3f9f55",
+          "commit": "d071f80",
           "built": "2026-11-24",
-          "file": "abyssmael/test/profile-main/abyssmael.fwsc",
-          "sha256": "15e264c70b2f198c18df817be0c744a9fc204b8b069b23e3aea1081087841b15",
-          "notes": "main with the CPU profile readout in the top-right header text under the page title: DEEP 70 S0 B0 V0 F0 C0% = sequencer, voice setup, voices, effects as % of block time, then total CPU. Read at idle and playing a busy scene. No browser player."
-        },
-        {
-          "label": "profile-fx",
-          "version": "profile",
-          "commit": "c3f9f55+5fae81c",
-          "built": "2026-11-24",
-          "file": "abyssmael/test/profile-fx/abyssmael.fwsc",
-          "sha256": "6fa5b90b1b1aba0744c6b55f37ed3360a145a8d7bddd7464cac4884c3ce634f7",
-          "notes": "profile-main's readout (header: S B V F = sequencer, voice setup, voices, effects as % of block time, then C total) with the FX PR #3 head 5fae81c (cheaper effects, idle bypass). Compare F with profile-main. No browser player."
+          "file": "abyssmael/test/profile-stress-cap12/abyssmael.fwsc",
+          "sha256": "b31ab4229382ee96bcecb8e09d8a9ec8de9bd182e5736e29a820360e105a5d3c",
+          "notes": "Voice cap 12 by itself (core d071f80, PR #2 merged in): the step before the table sine and CPU guard. GLO page 4, K2 right starts the stress test. Read V, R and C about 30 s after starting. No browser player."
         },
         {
           "label": "test",
           "version": "0.5 (test)",
-          "commit": "b86a2d7",
-          "built": "2026-11-24",
+          "commit": "d387aba",
+          "built": "2026-11-25",
           "file": "abyssmael/test/test/abyssmael.fwsc",
-          "sha256": "47e8d213748fc345faa9277d5cca0cb67d8b85671aea785bac1e81aead3c43c2",
+          "sha256": "c0bf2b3387203cf17aef11e56100d5bc72e2cec2405883e6f4fdacc349acf33f",
           "wasm": "abyssmael/test/test/sim.wasm",
-          "notes": "main plus the open PRs (#3, #2, #1), merged as branch test-build"
-        },
-        {
-          "label": "profile-fx3",
-          "version": "profile",
-          "commit": "9e33213+02a4615",
-          "built": "2026-11-24",
-          "file": "abyssmael/test/profile-fx3/abyssmael.fwsc",
-          "sha256": "9ae5bf62edc8f9553d0ebd1c6287009568df3aa3a88aabbe1447942cdc0ccc22",
-          "notes": "FX PR #3 head 02a4615 as is (reverb and delay at half rate). The CPU readout is on GLO page 4 (BUILD AND CPU). No browser player."
-        },
-        {
-          "label": "profile-fx4",
-          "version": "profile",
-          "commit": "9e33213+df1bc45",
-          "built": "2026-11-24",
-          "file": "abyssmael/test/profile-fx4/abyssmael.fwsc",
-          "sha256": "91ebb14391f22b322b29f40132223692f0e00beb2ff24590dcace0161ec11c15",
-          "notes": "FX PR #3 head df1bc45 as is (hiss from pink-noise tables). CPU readout on GLO page 4 (BUILD AND CPU). No browser player."
-        },
-        {
-          "label": "profile-fx5",
-          "version": "profile",
-          "commit": "9e33213+383b693",
-          "built": "2026-11-24",
-          "file": "abyssmael/test/profile-fx5/abyssmael.fwsc",
-          "sha256": "adb449c8d9f0b2c72d5564b5beebf345af6ecadaf6df48fdc6b605e9447d75a7",
-          "notes": "FX PR #3 head 383b693 as is (reverb at quarter rate). CPU readout on GLO page 4 (BUILD AND CPU). No browser player."
-        },
-        {
-          "label": "profile-fx5-norev",
-          "version": "profile",
-          "commit": "9e33213+383b693",
-          "built": "2026-11-24",
-          "file": "abyssmael/test/profile-fx5-norev/abyssmael.fwsc",
-          "sha256": "a870793929e505ee17b0a7cefd16eaf3d17a6db060d34697c0b91c4438de6ef0",
-          "notes": "as profile-fx5 with the reverb skipped (FX_OFF_REVERB); measuring only. CPU readout on GLO page 4 (BUILD AND CPU). No browser player."
+          "notes": "main plus the open PRs (#7, #6), merged as branch test-build"
         }
       ]
     },
