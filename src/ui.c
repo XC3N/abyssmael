@@ -10,7 +10,9 @@ static struct {
     uint8_t latched[NKEYS];
     uint8_t prev_page, mix_mode;         /* the page MIX came from; MIX's black keys: 0 mute, 1 solo */
     uint32_t mix_at;                     /* when the MIX key went down (held long: MIX only while held) */
-    uint8_t note_edit, cursor;           /* SEQ 3: the white keys write notes, into this hit / step */
+    uint8_t wk1;                         /* the pattern page's white key down, plus one */
+    uint8_t cursor, adv;                 /* SEQ 3: the hit / step the white keys write into; adv: move on after a write */
+    uint32_t wk_at;                      /* when the held white key went down */
     int8_t hold_step;                    /* SEQ 3, STEP: the white key held (K1 sets its note), -1 none */
     uint8_t hold_turned;
     int32_t knote[NKEYS];                /* the note each key started (so a key's note off finds it) */
@@ -89,8 +91,12 @@ void app_say(const char *a, const char *b)
 /* a page's value k: SEQ 2 and 3 show the track's mode's values */
 static uint32_t page_ref(uint32_t pg, uint32_t sub, uint32_t k)
 {
-    if (pg == PG_SEQ && sub == 2u && sc.tp[cur_trk][TP_SMODE] == 1u) {   /* EUCL pattern: what shapes it as you watch */
-        static const uint8_t PAT_REF[4] = {TP_EHITS, TP_EROT, TP_EDIR, TP_ECHANCE};
+    if (pg == PG_SEQ && sub == 2u && sc.tp[cur_trk][TP_SMODE] == 1u) {   /* the pattern page: K1 the cursor, then what shapes it */
+        static const uint8_t PAT_REF[4] = {0x62, TP_EROT, TP_EDIR, TP_ECHANCE};
+        return PAT_REF[k];
+    }
+    if (pg == PG_SEQ && sub == 2u && sc.tp[cur_trk][TP_SMODE] == 2u) {
+        static const uint8_t PAT_REF[4] = {0x62, TP_SDIR, TP_SCHANCE, TP_SMUT};
         return PAT_REF[k];
     }
     if (pg == PG_SEQ && sub > 0u)
@@ -116,7 +122,7 @@ static const char *page_title(uint32_t pg, uint32_t sub)
     if (pg == PG_SEQ && sub == 1u)
         return SEQ_MODE[sc.tp[cur_trk][TP_SMODE]];
     if (pg == PG_SEQ && sub == 2u)
-        return ui.note_edit ? "NOTE ENTRY" : PT[sc.tp[cur_trk][TP_SMODE]];
+        return PT[sc.tp[cur_trk][TP_SMODE]];
     return PG_TITLE[pg][sub];
 }
 static const char *page_short(uint32_t pg, uint32_t sub)
@@ -128,15 +134,16 @@ static const char *page_short(uint32_t pg, uint32_t sub)
 
 /* a value's name and text */
 /* refs 0x60 and 0x61 are the UI's own values (SCALE page): scale mode on/off and the keys' octave; not in the scene */
-static const pdesc_t PSD[2] = {{"SCALE MODE", 0, 1, K_ENUM, 1, OFF_ON}, {"KEYS OCTAVE", 0, 6, K_OCT, 1, 0}};
+static const pdesc_t PSD[4] = {{"SCALE MODE", 0, 1, K_ENUM, 1, OFF_ON}, {"KEYS OCTAVE", 0, 6, K_OCT, 1, 0},
+                               {"CURSOR", 0, 15, K_POS1, 1, 0}, {"ADVANCE", 0, 1, K_ENUM, 1, OFF_ON}};
 static const pdesc_t *ref_desc(uint32_t ref)
 {
-    return ref >= 0x60u && ref < 0x80u ? &PSD[ref - 0x60u] : ref & 0x80u ? &GPD[ref & 0x7Fu] : &TPD[ref];
+    return ref >= 0x60u && ref < 0x64u ? &PSD[ref - 0x60u] : ref & 0x80u ? &GPD[ref & 0x7Fu] : &TPD[ref];
 }
 static uint8_t *ref_ptr(uint32_t ref)
 {
-    if (ref >= 0x60u && ref < 0x80u)
-        return ref == 0x60u ? (uint8_t *)&scale_mode : &ui.oct;
+    if (ref >= 0x60u && ref < 0x64u)
+        return ref == 0x60u ? (uint8_t *)&scale_mode : ref == 0x61u ? &ui.oct : ref == 0x62u ? &ui.cursor : &ui.adv;
     return ref & 0x80u ? &sc.gp[ref & 0x7Fu] : &sc.tp[cur_trk][ref];
 }
 static const char *ref_name(uint32_t ref)
@@ -155,6 +162,7 @@ static void ref_text(uint32_t ref, char *t)
     case K_ENUM: text_cat(t, d->names[v]); break;
     case K_OCT: int_text((int32_t)v - 3, t); break;
     case K_NOTE: text_cat(t, NOTE_NAME[v % 12u]); break;
+    case K_POS1: int_text((int32_t)v + 1, t); break;
     case K_BPM: int_text((int32_t)v, t); text_cat(t, " BPM"); break;
     case K_SLEEP:
         if (!v)
@@ -187,7 +195,7 @@ static void ref_turn(uint32_t ref, int32_t e)
     if (v == *p)
         return;
     *p = (uint8_t)v;
-    if (ref < 0x60u || ref >= 0x80u)
+    if (ref < 0x60u || ref >= 0x64u)
         sc_dirty = 1;
     if (ref == G(GP_THEME))
         palette_set(sc.gp[GP_THEME]);
@@ -238,7 +246,7 @@ static int32_t scale_key_note(uint32_t wi)
  * SAV: LOAD, NEW, SAVE, DEL, NAME (page 1); OK, <, >, SPACE, LIST (page 2). A button's pages are the button again. */
 enum { S_NONE, S_TRK, S_INST, S_ENV, S_LFO, S_SEQ, S_ARP, S_SEND,
        S_PLAY, S_LATCH, S_MMODE, S_MTRK, S_MCLR, S_SCLR, S_MIX,
-       S_SMODE, S_NOTES, S_RAND, S_REST, S_CURP, S_CURN,
+       S_SMODE, S_RAND, S_REST,
        S_PLOAD, S_PNEW, S_PSAVE, S_PDEL, S_PNAME, S_NOK, S_NPREV, S_NNEXT, S_NSPC, S_NLIST };
 static const char *const TRK_LBL[NTRK] = {"BEL", "PLK", "PAD", "DRN", "TEX"};
 static const char *const INST_SHORT[NINST] = {"DRN", "PAD", "BEL", "PLK", "TEX"};
@@ -301,13 +309,6 @@ static uint32_t slot(uint32_t bi, uint32_t *arg, const char **lbl, uint32_t *lit
             return A[c];
         }
     }
-    if (c < 3u && pg == PG_SEQ && ui.note_edit) {   /* entering notes: the cursor, then NOTE */
-        static const char *const L[3] = {"<CUR", "CUR>", "NOTE"};
-        static const uint8_t A[3] = {S_CURP, S_CURN, S_NOTES};
-        *lbl = L[c];
-        *lit = c == 2u;
-        return A[c];
-    }
     *arg = c;
     switch (pg) {
     case PG_EDIT: *lbl = INST_SHORT[c]; *lit = p[TP_INST] == c; return S_INST;
@@ -318,10 +319,6 @@ static uint32_t slot(uint32_t bi, uint32_t *arg, const char **lbl, uint32_t *lit
         return S_ENV;
     case PG_LFO: *lbl = LFO_LBL[c]; *lit = p[TP_L1SHP + 4 * sub] == LFO_SET[c]; return S_LFO;
     case PG_SEQ:                             /* the mode; then NEW, LOCK (GEN) or NOTES, RAND / REST */
-        if (ui.note_edit) {                  /* (the cursor and NOTE are on the first three) */
-            *lbl = c == 3u ? "REST" : "RAND";
-            return c == 3u ? S_REST : S_RAND;
-        }
         if (c < 3u) {
             *lbl = SEQ_MODE_S[c];
             *lit = p[TP_SMODE] == c;
@@ -333,9 +330,9 @@ static uint32_t slot(uint32_t bi, uint32_t *arg, const char **lbl, uint32_t *lit
             *lit = c == 4u && p[TP_DEJAVU] == 100;
             return S_SEQ;
         }
-        if (c == 3u) {
-            *lbl = "NOTE";
-            return S_NOTES;
+        if (c == 3u) {                       /* the cursor's hit or step: rest, or play */
+            *lbl = "REST";
+            return S_REST;
         }
         *lbl = "RAND";
         return S_RAND;
@@ -471,7 +468,8 @@ static void note_enter(uint32_t wi)
         sc.son[cur_trk] |= (uint16_t)(1u << ui.cursor);
     }
     sc_dirty = 1;
-    ui.cursor = (uint8_t)((ui.cursor + 1u) % seq_count(cur_trk));
+    if (ui.adv)                              /* the setting: move on after a write */
+        ui.cursor = (uint8_t)((ui.cursor + 1u) % seq_count(cur_trk));
 }
 
 /* SAV page 2: the letter under the position (e < 0 back, > 0 forward, or 0 with `set`: a space) */
@@ -553,31 +551,17 @@ static void black_key(uint32_t bi, int down)
             seq_pos[cur_trk] = 0;
             sc_dirty = 1;
         }
-        if (!arg)
-            ui.note_edit = 0;
         app_say("SEQ MODE", SEQ_MODE[arg]);
         break;
-    case S_NOTES:
-        ui.note_edit = !ui.note_edit;
-        ui.cursor = 0;
-        if (ui.note_edit && !(ui.page == PG_SEQ && ui.sub[PG_SEQ] == 2u))
-            page_open(PG_SEQ, 2);
-        app_say("NOTE ENTRY", ui.note_edit ? "WHITE KEYS" : "OFF");
-        break;
-    case S_CURP:
-    case S_CURN: {
-        uint32_t cnt = seq_count(cur_trk);
-        ui.cursor = (uint8_t)((ui.cursor + (a == S_CURN ? 1u : cnt - 1u)) % cnt);
-        break;
-    }
-    case S_REST:
-        if (p[TP_SMODE] == 1u)
-            sc.hn[cur_trk][ui.cursor] = REST;
-        else
-            sc.son[cur_trk] &= (uint16_t)~(1u << ui.cursor);
+    case S_REST:                             /* the cursor's hit or step: play or rest */
+        if (p[TP_SMODE] == 1u) {
+            sc.hn[cur_trk][ui.cursor] = sc.hn[cur_trk][ui.cursor] == REST ? 0u : REST;
+            app_say("HIT", sc.hn[cur_trk][ui.cursor] == REST ? "REST" : "PLAYS");
+        } else {
+            sc.son[cur_trk] ^= (uint16_t)(1u << ui.cursor);
+            app_say("STEP", sc.son[cur_trk] >> ui.cursor & 1u ? "ON" : "OFF");
+        }
         sc_dirty = 1;
-        ui.cursor = (uint8_t)((ui.cursor + 1u) % seq_count(cur_trk));
-        app_say("REST", "");
         break;
     case S_RAND:
         for (i = 0; i < 16u; i++) {          /* notes from the scale's lower octave and a bit, now and then a rest */
@@ -675,27 +659,30 @@ static void input(void)
             continue;
         }
         if (scale_mode && wi < 16u && ui.page == PG_SEQ && ui.sub[PG_SEQ] == 2u && sc.tp[cur_trk][TP_SMODE]) {
-            if (ui.note_edit) {              /* entering notes: write it, then play it as usual */
-                if (pressed & bit)
-                    note_enter(wi);
-            } else {                         /* STEP: the white keys are the 16 steps; EUCL: its hits */
-                if (sc.tp[cur_trk][TP_SMODE] == 1u && wi >= seq_count(cur_trk))
-                    continue;                /* beyond the last hit: nothing there */
-                if (pressed & bit) {
-                    ui.hold_step = (int8_t)wi;
-                    ui.hold_turned = 0;
-                } else if (ui.hold_step == (int8_t)wi) {
-                    if (!ui.hold_turned) {   /* a tap turns a step on or off, or a hit into a rest and back */
+            /* the pattern page: a tap writes the key's note at the cursor (K1 moves the cursor); a key held with K1 / K2
+             * turned sets that step's or hit's note and condition; held for 300 ms and let go, it turns that step on or
+             * off (a hit into a rest and back). The key sounds as usual. */
+            if (pressed & bit) {
+                ui.wk1 = (uint8_t)(wi + 1u);
+                ui.wk_at = plat_ms();
+                ui.hold_turned = 0;
+                ui.hold_step = wi < seq_count(cur_trk) ? (int8_t)wi : (int8_t)-1;
+                ui.redraw = 1;
+            } else if (ui.wk1 == wi + 1u) {
+                if (!ui.hold_turned) {
+                    if (plat_ms() - ui.wk_at < 300u) {
+                        note_enter(wi);
+                    } else if (ui.hold_step >= 0) {
                         if (sc.tp[cur_trk][TP_SMODE] == 2u)
                             sc.son[cur_trk] ^= (uint16_t)(1u << wi);
                         else
                             sc.hn[cur_trk][wi] = sc.hn[cur_trk][wi] == REST ? 0u : REST;
+                        sc_dirty = 1;
                     }
-                    sc_dirty = 1;
-                    ui.hold_step = -1;
                 }
+                ui.wk1 = 0;
+                ui.hold_step = -1;
                 ui.redraw = 1;
-                continue;
             }
         }
         if (pressed & bit) {
@@ -782,6 +769,12 @@ static void input(void)
                 }
                 continue;
             }
+            if (k == 0u && ui.page == PG_SEQ && ui.sub[PG_SEQ] == 2u && sc.tp[cur_trk][TP_SMODE]) {   /* K1: the cursor */
+                int32_t cnt = (int32_t)seq_count(cur_trk), c = ((int32_t)ui.cursor + e) % cnt;
+                ui.cursor = (uint8_t)(c < 0 ? c + cnt : c);
+                ui.redraw = 1;
+                continue;
+            }
             if (ui.page == PG_GLO && ui.sub[PG_GLO] == 3u) {   /* BUILD AND CPU: K1 clears the peak */
                 if (k == 0u)
                     ui.cpu_max = 0, ui.pk[0] = ui.pk[1] = ui.pk[2] = ui.pk[3] = ui.pk[4] = 0;
@@ -804,8 +797,8 @@ static void input(void)
             ref_turn(page_ref(ui.page, ui.sub[ui.page], k), e);
         }
     if (!(ui.page == PG_SEQ && ui.sub[PG_SEQ] == 2u && sc.tp[cur_trk][TP_SMODE])) {
-        ui.note_edit = 0;
         ui.hold_step = -1;
+        ui.wk1 = 0;
     }
     if (keys != ui.keys || btn != ui.btn)
         ui.redraw = 1;
@@ -847,13 +840,17 @@ static void input(void)
                 else
                     dk |= 1u << BK[k];
             }
-            if (ui.page == PG_SEQ && ui.sub[PG_SEQ] == 2u && sc.tp[cur_trk][TP_SMODE] == 2u && !ui.note_edit) {
-                uint32_t on = sc.son[cur_trk];   /* the steps: lit when on, the step playing blinks the other way */
-                for (k = 0; k < sc.tp[cur_trk][TP_SLEN]; k++)
-                    if (((on >> k) & 1u) != (k == seq_cur[cur_trk] && playing))
+            if (ui.page == PG_SEQ && ui.sub[PG_SEQ] == 2u && sc.tp[cur_trk][TP_SMODE] == 2u) {
+                uint32_t on = sc.son[cur_trk], blink = (plat_ms() / 110u) & 1u;
+                for (k = 0; k < sc.tp[cur_trk][TP_SLEN]; k++)   /* the steps: lit when on, dim when off; the step playing blinks */
+                    if (playing && k == seq_cur[cur_trk]) {
+                        if (blink)
+                            lk |= 1u << WK[k];
+                    } else if ((on >> k) & 1u) {
                         lk |= 1u << WK[k];
-                    else
+                    } else {
                         dk |= 1u << WK[k];
+                    }
             } else {
                 for (k = 0; k < 16u; k++)
                     if (k % len == 0u)

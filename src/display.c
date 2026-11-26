@@ -99,8 +99,8 @@ static void draw(void)
             hits = len;
         if (ui.hold_step >= 0)
             hn_sel = ui.hold_step;
-        else if (ui.note_edit)
-            hn_sel = (int32_t)ui.cursor;
+        else
+            hn_sel = (int32_t)ui.cursor % (int32_t)(hits ? hits : 1u);
         for (k = 0; k < len; k++) {
             uint32_t a = k * 96u / len;
             int32_t x = cx + r * CS[(a + 72u) % 96u] / 100, y = cy - r * CS[a] / 100, h = eu_hit((k + len - rot % len) % len, hits, len);
@@ -188,7 +188,7 @@ static void draw(void)
             cv_rect(x, 6, 12, 20, c);
             if (k == cur && playing)                       /* the step playing */
                 cv_rect(x, 0, 12, 4, C_WHITE);
-            if (ui.note_edit && ((mode == 1u && h == (int32_t)ui.cursor) || (mode == 2u && k == ui.cursor)))
+            if ((mode == 1u && h >= 0 && h == (int32_t)ui.cursor) || (mode == 2u && k == ui.cursor))
                 cv_rect(x - 1, 28, 14, 3, C_WHITE);          /* where the next note goes */
             if ((mode == 2u && sc.cd[cur_trk][k]) || (mode == 1u && h >= 0 && sc.cd[cur_trk][h]))
                 cv_text(x + 6 - text_w(&FONT_T, COND_NAME[sc.cd[cur_trk][mode == 1u ? h : (int32_t)k]]) / 2, 45, &FONT_T,
@@ -342,7 +342,6 @@ static void draw(void)
             switch (a) {                      /* the colours say what a key is: pages, track, a choice, MIX */
             case S_NONE: bright = dim = C_LINE; break;
             case S_TRK: case S_MTRK: bright = TCOL[arg]; dim = (uint16_t)((TCOL[arg] >> 1) & 0x7BEFu); break;
-            case S_CURP: case S_CURN: bright = RGB(90, 150, 220); dim = RGB(50, 85, 125); break;
             case S_MIX: bright = C_WHITE; dim = C_GRAY; break;
             default: bright = RGB(255, 200, 87); dim = RGB(138, 109, 46); break;
             }

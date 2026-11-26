@@ -62,29 +62,29 @@ tapkey b6
 wait 40
 expect smode 1
 shot euclid.png
-tapkey b8
-wait 40
-expect note_edit 1
 expect cursor 0
 tapkey w4
 wait 40
 expect hn0 4
+expect cursor 0
+spin K1 1
+wait 40
 expect cursor 1
 tapkey w7
 wait 40
 expect hn1 7
 tapkey b8
 wait 40
-expect cursor 3
-shot euclid_notes.png
-tapkey b7
+expect hn1 31
+tapkey b8
 wait 40
-expect note_edit 0
+expect hn1 0
+shot euclid_notes.png
 wav euclid.wav
 wait 8000
 wavstop
 shot euclid_play.png
-# EUCL: hold a hit, K1 its note, K2 its condition; a tap makes it a rest and back
+# EUCL: hold a hit, K1 its note, K2 its condition; held 300 ms and let go, it becomes a rest and back
 key w0 down
 wait 40
 spin K2 1
@@ -101,10 +101,14 @@ wait 40
 shot euclid_hold.png
 key w0 up
 wait 40
-tapkey w1
+key w1 down
+wait 400
+key w1 up
 wait 40
 expect hn1 31
-tapkey w1
+key w1 down
+wait 400
+key w1 up
 wait 40
 expect hn1 0
 # EUCL SEQ 2: DRIFT on K4; pattern page: DIRECTION on K3
@@ -139,7 +143,9 @@ tapkey b7
 wait 40
 expect smode 2
 expect son 18761
-tapkey w1
+key w1 down
+wait 400
+key w1 up
 wait 40
 expect son 18763
 key w0 down
@@ -306,3 +312,33 @@ shot info.png
 tap GLO
 wait 40
 expect page 70
+# STEP entry: K1 moves the cursor, a tap writes the key's note there; ADVANCE (SCALE page 2) moves on after a write
+tap SEQ
+wait 40
+tapkey b7
+wait 40
+expect smode 2
+spin K1 -1
+wait 40
+expect cursor 0
+spin K1 1
+wait 40
+tapkey w9
+wait 40
+expect sn1 9
+expect adv 0
+tap SEL
+wait 40
+tap SEL
+wait 40
+expect page 91
+spin K1 1
+wait 40
+expect adv 1
+tap SEQ
+wait 40
+expect cursor 1
+tapkey w3
+wait 40
+expect sn1 3
+expect cursor 2

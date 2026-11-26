@@ -93,7 +93,7 @@ typedef struct {
     uint8_t cd[NTRK][16];                /* the condition of each EUCLID hit or STEP step (C_...) */
 } scene_t;
 
-enum { K_PCT, K_ENUM, K_OCT, K_NOTE, K_BPM, K_CENT, K_INSTP, K_SLEEP };
+enum { K_PCT, K_ENUM, K_OCT, K_NOTE, K_BPM, K_CENT, K_INSTP, K_SLEEP, K_POS1 };
 typedef struct {
     const char *name;
     uint8_t lo, hi, kind, step;
@@ -141,14 +141,14 @@ static const pdesc_t GPD[NGP] = {
 enum { PG_HOME, PG_EDIT, PG_ENV, PG_LFO, PG_SEQ, PG_ARP, PG_FX, PG_GLO, PG_MIX, PG_SCALE, PG_SAV, NPG };
 static const char *const PG_NAME[NPG] = {"HOME", "EDIT", "ENV", "LFO", "SEQ", "ARP", "FX", "GLO", "MIX", "SCALE", "SAV"};
 static const uint8_t PG_BTN[NPG] = {B_HOME, B_EDIT, B_ENV, B_LFO, B_SEQ, B_ARP, B_FX, B_GLO, 0xFFu, B_SEL, B_SAVE};   /* MIX: a black key */
-static const uint8_t PG_N[NPG] = {2, 2, 2, 2, 3, 2, 3, 4, 1, 1, 2};   /* GLO's fourth page is on black key 4 (BUILD AND CPU) */
+static const uint8_t PG_N[NPG] = {2, 2, 2, 2, 3, 2, 3, 4, 1, 2, 2};   /* GLO's fourth page is on black key 4 (BUILD AND CPU) */
 static const char *const PG_TITLE[NPG][4] = {
     {"HOME", "SESSION"}, {"SOUND A", "SOUND B"}, {"AMP ENVELOPE", "FILTER"}, {"LFO 1", "LFO 2"}, {"SEQUENCER", "", "PATTERN"},
-    {"ARPEGGIO", "ARP SOURCE"}, {"TRACK MIX", "DELAY", "SHIMMER REVERB"}, {"KEY AND TIME", "DRIFT", "AGE", "NOW (PEAK) K1 CLEARS"}, {"MUTE AND SOLO"}, {"KEY, SCALE, KEYS"}, {"PROJECTS", "NAME"}};
+    {"ARPEGGIO", "ARP SOURCE"}, {"TRACK MIX", "DELAY", "SHIMMER REVERB"}, {"KEY AND TIME", "DRIFT", "AGE", "NOW (PEAK) K1 CLEARS"}, {"MUTE AND SOLO"}, {"KEY, SCALE, KEYS", "NOTE ENTRY"}, {"PROJECTS", "NAME"}};
 /* the pages' short names, for the black keys */
 static const char *const PG_SHORT[NPG][4] = {
     {""}, {"SND A", "SND B"}, {"AMP", "FILT"}, {"LFO1", "LFO2"}, {"SEQ", "", "PATT"}, {"ARP", "SRC"}, {"MIX", "DELAY", "VERB"},
-    {"KEY", "DRIFT", "AGE", "INFO"}, {""}, {"SCALE"}, {"LOAD", "NAME"}};
+    {"KEY", "DRIFT", "AGE", "INFO"}, {""}, {"SCALE", "ENTRY"}, {"LOAD", "NAME"}};
 static const uint8_t PG_REF[NPG][4][4] = {
     {{G(GP_DARK), G(GP_ACT), G(GP_SPACE), TP_LEVEL}, {G(GP_SLEEP), G(GP_TEMPO), G(GP_SWING), G(GP_DRIFT)}},
     {{TP_P0, TP_P1, TP_P2, TP_P3}, {TP_P4, TP_P5, TP_P6, TP_P7}},
@@ -161,8 +161,8 @@ static const uint8_t PG_REF[NPG][4][4] = {
     {{G(GP_KEY), G(GP_SCALE), G(GP_TEMPO), G(GP_SWING)}, {G(GP_DRIFT), G(GP_MOVE), G(GP_TUNE), G(GP_THEME)},
      {G(GP_HISS), G(GP_CRACKLE), G(GP_WOW), G(GP_AGE)}},
     {{TP_LEVEL, TP_PAN, TP_DSEND, TP_RSEND}},
-    {{G(GP_KEY), G(GP_SCALE), 0x60, 0x61}},   /* SCALE: 0x60 scale mode on/off, 0x61 the keys' octave (the UI's own) */
-    {{0x62, 0x62, 0x62, 0x62}, {0x63, 0x64, 0x63, 0x64}},   /* SAV: drawn by the page itself (0x62 the list, 0x63 the position, 0x64 the letter) */
+    {{G(GP_KEY), G(GP_SCALE), 0x60, 0x61}, {0x62 + 1, 0x60, 0x61, G(GP_KEY)}},   /* SCALE: 0x60 scale mode on/off, 0x61 the keys' octave, 0x62 the cursor, 0x63 ADVANCE (the UI's own) */
+    {{0}},   /* SAV: drawn by the page itself */
 };
 
 #define STORE_MAGIC 0x414D4237u          /* "AMB7" (projects) */
