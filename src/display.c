@@ -1,11 +1,146 @@
 /* SPDX-License-Identifier: MPL-2.0 */
 /* DISPLAY: what the screen shows: the header, the pages' four values, HOME, MIX, the pattern view, the black-key map.
  * It reads the scene and the UI's state and draws with fm1-base's gfx.c (cv_*). Part of app.c's unity build. */
+/* ---- the bell's pages (EDIT 1 to 3, ENV 1 and 2): the palette of the new look and one graphic per page ----
+ * #006466 #065a60 #0b525b #144552 #1b3a4b #212f45 #272640 #312244 #3e1f47 #4d194d, and #041b15 #136f63 #22aaa1 #4ce0d2 */
+#define PAL0 RGB(0, 100, 102)
+#define PAL2 RGB(11, 82, 91)
+#define PAL3 RGB(20, 69, 82)
+#define PAL4 RGB(27, 58, 75)
+#define PAL5 RGB(33, 47, 69)
+#define PAL6 RGB(39, 38, 64)
+#define PAL8 RGB(62, 31, 71)
+#define PAL9 RGB(77, 25, 77)
+#define ACC1 RGB(19, 111, 99)
+#define ACC2 RGB(34, 170, 161)
+#define ACC3 RGB(76, 224, 210)
+static const int8_t SIN96[96] = {100,100,99,98,97,95,92,90,87,83,79,75,71,66,61,56,50,44,38,32,26,20,13,7,0,-7,-13,-20,
+    -26,-32,-38,-44,-50,-56,-61,-66,-71,-75,-79,-83,-87,-90,-92,-95,-97,-98,-99,-100,-100,-100,-99,-98,-97,-95,
+    -92,-90,-87,-83,-79,-75,-71,-66,-61,-56,-50,-44,-38,-32,-26,-20,-13,-7,0,7,13,20,26,32,38,44,50,56,61,66,
+    71,75,79,83,87,90,92,95,97,98,99,100};   /* (cos of step i/96 of a turn: sin is the same table a quarter turn on) */
+static uint32_t bell_page(uint32_t pg)
+{
+    return (pg == PG_EDIT || pg == PG_ENV) && sc.tp[cur_trk][TP_INST] == I_BELL;
+}
+static void bell_dot(int32_t cx, int32_t cy, int32_t r, uint32_t a, uint16_t c)   /* a point on a circle, a in 0..95 */
+{
+    cv_rect(cx + r * SIN96[a % 96u] / 100 - 1, cy - r * SIN96[(a + 72u) % 96u] / 100 - 1, 2, 2, c);
+}
+static uint16_t mixc(uint16_t a, uint16_t b, uint32_t f)   /* a to b, f 0..100 (a rough blend of the two 565 colours) */
+{
+    uint32_t ar = a >> 11, ag = (a >> 5) & 63u, ab = a & 31u, br = b >> 11, bg = (b >> 5) & 63u, bb = b & 31u;
+    return (uint16_t)(((ar * (100u - f) + br * f) / 100u) << 11 | ((ag * (100u - f) + bg * f) / 100u) << 5 | ((ab * (100u - f) + bb * f) / 100u));
+}
+/* a curve as columns: heights from f(x) in 0..h; the fill fades from the edge to the base */
+static void bell_graph(const uint8_t *pt, int32_t y0, int32_t h, uint16_t top, uint16_t bot)   /* pt: 232 heights, 0..h */
+{
+    int32_t x;
+    for (x = 0; x < 232; x++) {
+        int32_t v = pt[x], y;
+        if (v <= 0)
+            continue;
+        for (y = 0; y < v; y += 2)
+            cv_rect(4 + x, y0 - y, 1, 2, mixc(bot, top, (uint32_t)(y * 100 / (h ? h : 1))));
+        cv_rect(4 + x, y0 - v, 1, 2, ACC3);
+    }
+}
+/* the envelope's curve of attack, decay, sustain and release (0..100 each) over 232 columns, height h */
+static void env_curve(uint8_t *pt, uint32_t a, uint32_t dc, uint32_t s, uint32_t r, int32_t h)
+{
+    int32_t wa = 6 + (int32_t)a * 60 / 100, wd = 6 + (int32_t)dc * 60 / 100, ws = 40, wr = 6 + (int32_t)r * 60 / 100, x;
+    int32_t tot = wa + wd + ws + wr, sh = (int32_t)s * h / 100;
+    for (x = 0; x < 232; x++) {
+        int32_t u = x * tot / 232, v;
+        if (u < wa)
+            v = h * u / wa;
+        else if (u < wa + wd)
+            v = h - (h - sh) * (u - wa) / wd;
+        else if (u < wa + wd + ws)
+            v = sh;
+        else
+            v = sh * (tot - u) / wr;
+        pt[x] = (uint8_t)(v < 0 ? 0 : v);
+    }
+}
+static void bell_draw(uint32_t pg, uint32_t sub)
+{
+    const uint8_t *p = sc.tp[cur_trk];
+    uint8_t pt[232];
+    uint32_t k, nk = 4;
+    int32_t x, cx = 120, cy = 48;
+    char t[16];
+    cv_rect(0, 0, 240, 100, PAL5);
+    if (pg == PG_ENV && sub == 0u) {         /* AMP: the curve of the loudness */
+        env_curve(pt, p[TP_ATK], p[TP_DEC], p[TP_SUS], p[TP_REL], 88);
+        bell_graph(pt, 96, 88, PAL0, PAL4);
+    } else if (pg == PG_ENV) {               /* FILTER ENV: its own curve, as tall as the amount (set on EDIT 3) says */
+        env_curve(pt, p[TP_FATK], p[TP_FDEC], p[TP_FSUS], p[TP_FREL], 88);
+        for (x = 0; x < 232; x++)
+            pt[x] = (uint8_t)(pt[x] * (12 + (int32_t)p[TP_FENV] * 88 / 100) / 100);
+        bell_graph(pt, 96, 88, ACC1, PAL3);
+        cv_rect(4, 96 - 12 * 88 / 100, 232, 1, PAL0);        /* where the filter rests */
+    } else if (sub == 0u) {                  /* METAL: rings; ratio spaces them, index how many, decay how fast they fade, beat a second set */
+        uint32_t ratio = p[TP_P0], idx = p[TP_P1], dec = p[TP_P2], beat = p[TP_P3], n = 2u + idx * 7u / 100u, i, a;
+        for (i = 0; i < n; i++) {
+            int32_t r = 8 + (int32_t)i * (6 + (int32_t)ratio * 8 / 100);
+            uint32_t f = 100u - (i * (dec + 10u) / n > 100u ? 100u : i * (dec + 10u) / n);
+            if (r > 46)
+                break;
+            for (a = 0; a < 96u; a += 2u) {
+                bell_dot(cx - (int32_t)beat * 10 / 100, cy, r, a, mixc(PAL3, ACC3, f));
+                if (beat > 4u)
+                    bell_dot(cx + (int32_t)beat * 10 / 100, cy, r, a, mixc(PAL3, ACC1, f));
+            }
+        }
+    } else if (sub == 1u) {                  /* STRIKE: eight partials as bars: strike the height, partial how many sound, spread the gaps, tone the colour */
+        uint32_t strike = p[TP_P4], part = p[TP_P5], spread = p[TP_P6], tone = p[TP_P7], i;
+        int32_t gap = 8 + (int32_t)spread * 14 / 100;
+        for (i = 0; i < 8u; i++) {
+            int32_t bx = 120 - (8 * (10 + gap)) / 2 + (int32_t)i * (10 + gap), h = (14 + (int32_t)strike * 78 / 100) * (100 - (int32_t)i * 9) / 100;
+            uint16_t c = mixc(PAL0, ACC3, tone);
+            if ((int32_t)i * 100 / 8 >= (int32_t)part + 12)
+                c = PAL3, h = h / 3;
+            cv_rect(bx, 96 - h, 10, h, c);
+        }
+    } else {                                 /* FILTER: the response: flat, a peak at the cutoff, then down; env amount a ghost where it opens to */
+        uint32_t cut = p[TP_CUT], res = p[TP_RES], keyt = p[TP_KEYT], amt = p[TP_FENV];
+        int32_t cxp = 20 + (int32_t)cut * 190 / 100 + ((int32_t)keyt - 50) / 6, ox = cxp + (int32_t)amt * (222 - cxp) / 100 / 2, pass;
+        for (pass = 0; pass < 2; pass++) {
+            int32_t c0 = pass ? ox : cxp;
+            for (x = 0; x < 232; x++) {
+                int32_t d = x - c0, v = 60, bump = (int32_t)res * 30 / 100;
+                if (d > 0)
+                    v = 60 - d * 2 / 2 * 60 / 90;
+                v += d > -12 && d < 12 ? bump * (12 - (d < 0 ? -d : d)) / 12 : 0;
+                pt[x] = (uint8_t)(v < 0 ? 0 : v > 90 ? 90 : v);
+            }
+            if (pass)
+                for (x = 0; x < 232; x += 3)
+                    cv_rect(4 + x, 96 - pt[x], 1, 1, ACC2);    /* the ghost: where the envelope opens it to */
+            else
+                bell_graph(pt, 96, 88, PAL0, PAL4);
+        }
+    }
+    /* the four values, big, under the picture: a small name and the number */
+    for (k = 0; k < nk; k++) {
+        uint32_t ref = page_ref(pg, sub, k);
+        int32_t xx = nk == 1u ? 4 : 4 + (int32_t)k * 59;
+        {
+            const char *nm = ref_name(ref);
+            if (nm[0] == 'F' && nm[1] == 'I' && nm[2] == 'L' && nm[5] == 'R' && nm[6] == ' ')   /* "FILTER ATTACK": the page says FILTER */
+                nm += 7;
+            cv_text(xx, 102, &FONT_T, nm, ACC2);
+        }
+        ref_text(ref, t);
+        cv_text(xx, 114, &FONT_L, t, C_WHITE);
+    }
+}
+
 static void draw(void)
 {
     /* the tonal voices (1-3) warm, the background voices (4, 5) cool */
-    static const uint16_t TCOL[NTRK] = {RGB(235, 130, 95), RGB(240, 195, 90), RGB(225, 140, 190), RGB(90, 150, 220),
-                                        RGB(80, 195, 185)};
+    static const uint16_t TCOL[NTRK] = {RGB(76, 224, 210), RGB(34, 170, 161), RGB(140, 215, 170), RGB(170, 90, 185),
+                                        RGB(120, 60, 150)};
     char t[32];
     uint32_t k, now = plat_ms(), pg = ui.page, sub = ui.sub[pg];
     /* the header: the track and the page, or a message */
@@ -31,8 +166,8 @@ static void draw(void)
         }
         t[0] = 0;
         text_cat(t, PG_NAME[pg]);
-        if (PG_N[pg] > 1u) {
-            char s[6] = {' ', (char)('1' + sub), '/', (char)('0' + PG_N[pg]), 0, 0};
+        if (pg_n(pg) > 1u) {
+            char s[6] = {' ', (char)('1' + sub), '/', (char)('0' + pg_n(pg)), 0, 0};
             text_cat(t, s);
         }
         cv_text(232 - text_w(&FONT_B, t), 2, &FONT_B, t, C_HI);
@@ -253,6 +388,8 @@ static void draw(void)
             cv_text(8, 141, &FONT_S, t, C_GRAY);
             tag_drawn = APP_TAGLINE[0] == 'v';
         }
+    } else if (bell_page(pg)) {              /* the bell: one picture per page, drawn from the four values, big numbers under it */
+        bell_draw(pg, sub);
     } else if (pg == PG_SAV && sub == 0u) {  /* the projects: four factory (locked), six of yours; K1 moves */
         for (k = 0; k < NLIST; k++) {
             int32_t y = (int32_t)k * 16;
@@ -312,22 +449,6 @@ static void draw(void)
             cv_rect(x, 136, 54, 3, C_DIM);
             cv_rect(x, 136, (int32_t)(ref_frac(ref) * 54u / 200u), 3, C_HI);
         }
-    } else if (pg == PG_EDIT) {              /* big look (proposal): four tiles, each filled from the bottom by its value */
-        for (k = 0; k < 4u; k++) {
-            uint32_t ref = page_ref(pg, sub, k), f = ref_frac(ref);   /* 0..200 */
-            int32_t x = 1 + (int32_t)(k & 1u) * 120, y = (int32_t)(k >> 1) * 81, w = 118, h = 79, fh = (int32_t)f * h / 200;
-            uint16_t c = TCOL[cur_trk], dimc = (uint16_t)((c >> 1) & 0x7BEFu);   /* half the track colour */
-            const felucca_font_t *fn = &FONT_L;
-            cv_rect(x, y, w, h, C_LINE);
-            cv_rect(x, y + h - fh, w, fh, dimc);
-            if (fh)
-                cv_rect(x, y + h - fh, w, 2, c);          /* the level's edge */
-            cv_text(x + 6, y + 3, &FONT_XS, ref_name(ref), C_WHITE);
-            ref_text(ref, t);
-            if (text_w(fn, t) > w - 12)
-                fn = &FONT_M;
-            cv_text(x + (w - text_w(fn, t)) / 2, y + 30, fn, t, C_WHITE);
-        }
     } else {
         for (k = 0; k < 4u; k++) {
             uint32_t ref = page_ref(pg, sub, k);
@@ -359,7 +480,7 @@ static void draw(void)
             case S_NONE: bright = dim = C_LINE; break;
             case S_TRK: case S_MTRK: bright = TCOL[arg]; dim = (uint16_t)((TCOL[arg] >> 1) & 0x7BEFu); break;
             case S_MIX: bright = C_WHITE; dim = C_GRAY; break;
-            default: bright = RGB(255, 200, 87); dim = RGB(138, 109, 46); break;
+            default: bright = ACC2; dim = PAL0; break;
             }
             cv_rect(cx - 8, 20, 16, 12, lit ? bright : dim);
             if (a == S_NONE)

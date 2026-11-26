@@ -101,6 +101,10 @@ static uint32_t page_ref(uint32_t pg, uint32_t sub, uint32_t k)
     }
     if (pg == PG_SEQ && sub > 0u)
         return MODE_REF[sc.tp[cur_trk][TP_SMODE]][k];
+    if (pg == PG_ENV && sub == 1u && sc.tp[cur_trk][TP_INST] == I_BELL) {   /* the bell: the filter's own envelope */
+        static const uint8_t FE[4] = {TP_FATK, TP_FDEC, TP_FSUS, TP_FREL};
+        return FE[k];
+    }
     return PG_REF[pg][sub][k];
 }
 static const char *page_title(uint32_t pg, uint32_t sub)
@@ -203,12 +207,17 @@ static void ref_turn(uint32_t ref, int32_t e)
     app_say(ref_name(ref), t);
 }
 
+/* how many pages a button has now: EDIT has a third for the bell (its filter) */
+static uint32_t pg_n(uint32_t pg)
+{
+    return pg == PG_EDIT && sc.tp[cur_trk][TP_INST] == I_BELL ? 3u : PG_N[pg];
+}
 static void page_open(uint32_t pg, int sub)
 {
     char t[24];
     if (sub < 0)                             /* the same button again: its next page */
-        sub = ui.page == pg ? (ui.sub[pg] + 1) % PG_N[pg] : ui.sub[pg];
-    if (sub >= PG_N[pg])
+        sub = ui.page == pg ? (ui.sub[pg] + 1) % pg_n(pg) : ui.sub[pg];
+    if (sub >= (int)pg_n(pg))
         return;
     if (pg == PG_SAV && ui.page != PG_SAV)
         ui.proj = am_store.cur < NLIST ? am_store.cur : (uint8_t)NFACT;
@@ -216,7 +225,7 @@ static void page_open(uint32_t pg, int sub)
     ui.sub[pg] = (uint8_t)sub;
     t[0] = 0;
     text_cat(t, PG_NAME[pg]);
-    if (PG_N[pg] > 1u) {
+    if (pg_n(pg) > 1u) {
         char n[4] = {' ', (char)('1' + sub), 0, 0};
         text_cat(t, n);
     }
@@ -424,18 +433,15 @@ static void latch_toggle(void)
             }
     app_say("LATCH", latch ? "ON" : "OFF");
 }
-static void scene_step(int32_t d)        /* the PRESET encoder: the previous or next project that holds something */
+static void page_browse(int32_t e)       /* the PRESET encoder: the pages of the button you are on (on SAV page 1: the list) */
 {
-    int32_t i = (int32_t)(am_store.cur < NLIST ? am_store.cur : d > 0 ? NLIST : NLIST) + d;
-    char t[12];
-    for (; i >= 0 && i < (int32_t)NLIST; i += d)
-        if (i < (int32_t)NFACT || proj_saved((uint32_t)i)) {
-            scene_use((uint32_t)i);
-            ui.proj = (uint8_t)i;
-            proj_name((uint32_t)i, t);
-            app_say("PROJECT", t);
-            return;
-        }
+    uint32_t n = pg_n(ui.page), s = ui.sub[ui.page];
+    if (ui.page == PG_SAV && s == 0u) {
+        ui.proj = (uint8_t)clamp((int32_t)ui.proj + e, 0, (int32_t)NLIST - 1);
+        ui.redraw = 1;
+    } else if (n > 1u) {
+        page_open(ui.page, (int)((s + n + (uint32_t)(e > 0 ? 1 : n - 1u)) % n));
+    }
 }
 static void mix_open(void)
 {
@@ -744,7 +750,7 @@ static void input(void)
         }
     }
     if ((e = plat_enc(EN_PRESET)) != 0)
-        scene_step(e);
+        page_browse(e);
     for (k = 0; k < 4u; k++)
         if ((e = plat_enc((int)(EN_K1 + k))) != 0) {
             if (k <= 1u && ui.hold_step >= 0) {   /* a step or hit held: K1 is its note, K2 its condition */
@@ -796,6 +802,8 @@ static void input(void)
             }
             ref_turn(page_ref(ui.page, ui.sub[ui.page], k), e);
         }
+    if (ui.sub[PG_EDIT] >= pg_n(PG_EDIT))
+        ui.sub[PG_EDIT] = 0;
     if (!(ui.page == PG_SEQ && ui.sub[PG_SEQ] == 2u && sc.tp[cur_trk][TP_SMODE])) {
         ui.hold_step = -1;
         ui.wk1 = 0;
