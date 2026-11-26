@@ -26,7 +26,7 @@ static float clk_left;                   /* samples to the next sixteenth */
 static uint32_t clk_tick;
 motif_t mo[NTRK];
 static uint8_t held[NTRK][8], hlife[NTRK][8], held_n[NTRK], arp_i[NTRK];   /* hlife: ticks left, 0 = until the key is let go */
-static int8_t arp_dir[NTRK] = {1, 1, 1, 1, 1, 1};
+static int8_t arp_dir[NTRK] = {1, 1, 1, 1, 1};
 
 int32_t degree_note(int32_t deg, int32_t oct)
 {
@@ -46,7 +46,7 @@ uint32_t track_audible(uint32_t t)
 
 /* EUCLID and STEP: where each track is in its pattern (the step played last, for the screen) */
 uint8_t seq_pos[NTRK], seq_cur[NTRK];
-static int8_t seq_dir[NTRK] = {1, 1, 1, 1, 1, 1};
+static int8_t seq_dir[NTRK] = {1, 1, 1, 1, 1};
 uint8_t eu_hits_now[NTRK], eu_rot_now[NTRK];
 static uint16_t seq_n[NTRK];             /* steps run since play started: pass = seq_n / length */
 static int8_t drift_h[NTRK], drift_r[NTRK];   /* EUCL DRIFT: how far the hits and rotation have wandered */
