@@ -4,11 +4,11 @@ expect playing 1
 expect scale_mode 1
 expect track 0
 expect page 0
-# the filter envelope starts as the drone's amp envelope (85 60 90 85) and is saved with the scene
-expect fatk 85
-expect fdec 60
-expect fsus 90
-expect frel 85
+# the filter envelope starts as the track's instrument's amp envelope (track 0 is the bell: 0 70 0 70)
+expect fatk 0
+expect fdec 70
+expect fsus 0
+expect frel 70
 shot home.png
 wav deep.wav
 wait 20000
