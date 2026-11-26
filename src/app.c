@@ -188,6 +188,8 @@ int app_expect(const char *what, int *got)
         *got = sc.tp[cur_trk][TP_EDIR];
     else if (!strcmp(what, "arpsrc"))
         *got = sc.tp[cur_trk][TP_ARPSRC];
+    else if (!strcmp(what, "fatk") || !strcmp(what, "fdec") || !strcmp(what, "fsus") || !strcmp(what, "frel"))   /* the filter ADSR */
+        *got = sc.tp[cur_trk][TP_FATK + (what[1] == 'a' ? 0 : what[1] == 'd' ? 1 : what[1] == 's' ? 2 : 3)];
     else if (!strcmp(what, "buildtag"))
         *got = tag_drawn;
     else if (!strcmp(what, "stress"))
