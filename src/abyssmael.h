@@ -15,7 +15,7 @@
 #pragma GCC diagnostic ignored "-Wunused-variable"
 
 #define SR 44100.0f
-#define NTRK 6u
+#define NTRK 5u
 #define VPT 4u                           /* voices per track */
 #define NVOICE (NTRK * VPT)
 #define VOICE_CAP 16u                    /* sounding at once, all tracks: the CPU's budget */
@@ -50,6 +50,11 @@ static const char *const ARP_PAT[4] = {"UP", "DOWN", "UP DOWN", "RANDOM"};
 static const char *const OFF_ON[2] = {"OFF", "ON"};
 static const char *const MOVE_NAME[4] = {"FIFTH", "FOURTH", "STEP", "ANY"};
 static const char *const THEME_NAME[5] = {"GREEN", "AMBER", "CYAN", "RED", "MONO"};
+static const uint8_t TRACK_ROLE[NTRK] = {I_BELL, I_PLUCK, I_PAD, I_DRONE, I_TEXTURE};   /* tonal: 1-3, background: 4-5 */
+#define NFACT 4u                         /* the factory projects: in the code, locked */
+#define NUSER 6u                         /* your projects: in the store */
+#define NLIST (NFACT + NUSER)            /* the list; cur = NLIST is an untitled new project */
+#define NAMELEN 8u
 static const char *const SCENE_NAME[4] = {"DEEP", "GLASS", "TIDE", "VOID"};
 static const char *const SEQ_MODE[3] = {"GENERATOR", "EUCLID", "STEP SEQ"};
 static const char *const SEQ_MODE_S[3] = {"GEN", "EUCL", "STEP"};
@@ -71,7 +76,8 @@ enum {   /* a track's values */
     TP_SMODE, TP_EHITS, TP_ELEN, TP_EROT, TP_ECHANCE, TP_SLEN, TP_SDIR, TP_SCHANCE, TP_SMUT,
     TP_EDIR, TP_EDRIFT,
     TP_ARPON, TP_ARPRATE, TP_ARPPAT, TP_ARPGATE, TP_ARPSRC,
-    TP_LEVEL, TP_PAN, TP_DSEND, TP_RSEND, TP_MUTE, TP_SOLO, NTP
+    TP_LEVEL, TP_PAN, TP_DSEND, TP_RSEND, TP_MUTE, TP_SOLO,
+    TP_FATK, TP_FDEC, TP_FSUS, TP_FREL, NTP   /* the filter's own ADSR; ENV AMOUNT (TP_FENV) is its depth */
 };
 enum {   /* the scene's global values */
     GP_KEY, GP_SCALE, GP_TEMPO, GP_SWING, GP_DRIFT, GP_MOVE, GP_TUNE, GP_THEME,
@@ -88,7 +94,7 @@ typedef struct {
     uint8_t cd[NTRK][16];                /* the condition of each EUCLID hit or STEP step (C_...) */
 } scene_t;
 
-enum { K_PCT, K_ENUM, K_OCT, K_NOTE, K_BPM, K_CENT, K_INSTP, K_SLEEP };
+enum { K_PCT, K_ENUM, K_OCT, K_NOTE, K_BPM, K_CENT, K_INSTP, K_SLEEP, K_POS1 };
 typedef struct {
     const char *name;
     uint8_t lo, hi, kind, step;
@@ -117,6 +123,8 @@ static const pdesc_t TPD[NTP] = {
     {"ARP FROM", 0, 2, K_ENUM, 1, ARP_SRC},
     {"LEVEL", 0, 100, K_PCT, 2, 0}, {"PAN", 0, 100, K_PCT, 2, 0}, {"DELAY SEND", 0, 100, K_PCT, 2, 0},
     {"REVERB SEND", 0, 100, K_PCT, 2, 0}, {"MUTE", 0, 1, K_ENUM, 1, OFF_ON}, {"SOLO", 0, 1, K_ENUM, 1, OFF_ON},
+    {"FILTER ATTACK", 0, 100, K_PCT, 2, 0}, {"FILTER DECAY", 0, 100, K_PCT, 2, 0},
+    {"FILTER SUSTAIN", 0, 100, K_PCT, 2, 0}, {"FILTER RELEASE", 0, 100, K_PCT, 2, 0},
 };
 static const pdesc_t GPD[NGP] = {
     {"KEY", 0, 11, K_NOTE, 1, 0}, {"SCALE", 0, NSCALE - 1, K_ENUM, 1, SCALE_NAME}, {"TEMPO", 30, 200, K_BPM, 1, 0},
@@ -133,17 +141,17 @@ static const pdesc_t GPD[NGP] = {
 
 /* the pages: button, its pages, four values each (a track value, or G(...) for a global one) */
 #define G(x) (0x80u | (x))
-enum { PG_HOME, PG_EDIT, PG_ENV, PG_LFO, PG_SEQ, PG_ARP, PG_FX, PG_GLO, PG_MIX, PG_SCALE, NPG };
-static const char *const PG_NAME[NPG] = {"HOME", "EDIT", "ENV", "LFO", "SEQ", "ARP", "FX", "GLO", "MIX", "SCALE"};
-static const uint8_t PG_BTN[NPG] = {B_HOME, B_EDIT, B_ENV, B_LFO, B_SEQ, B_ARP, B_FX, B_GLO, 0xFFu, B_SEL};   /* MIX: a black key */
-static const uint8_t PG_N[NPG] = {2, 2, 2, 2, 3, 2, 3, 4, 1, 1};   /* GLO's fourth page is on black key 4 (BUILD AND CPU) */
+enum { PG_HOME, PG_EDIT, PG_ENV, PG_LFO, PG_SEQ, PG_ARP, PG_FX, PG_GLO, PG_MIX, PG_SCALE, PG_SAV, NPG };
+static const char *const PG_NAME[NPG] = {"HOME", "EDIT", "ENV", "LFO", "SEQ", "ARP", "FX", "GLO", "MIX", "SCALE", "SAV"};
+static const uint8_t PG_BTN[NPG] = {B_HOME, B_EDIT, B_ENV, B_LFO, B_SEQ, B_ARP, B_FX, B_GLO, 0xFFu, B_SEL, B_SAVE};   /* MIX: a black key */
+static const uint8_t PG_N[NPG] = {2, 2, 2, 2, 3, 2, 3, 4, 1, 2, 2};   /* GLO's fourth page is on black key 4 (BUILD AND CPU) */
 static const char *const PG_TITLE[NPG][4] = {
     {"HOME", "SESSION"}, {"SOUND A", "SOUND B"}, {"AMP ENVELOPE", "FILTER"}, {"LFO 1", "LFO 2"}, {"SEQUENCER", "", "PATTERN"},
-    {"ARPEGGIO", "ARP SOURCE"}, {"TRACK MIX", "DELAY", "SHIMMER REVERB"}, {"KEY AND TIME", "DRIFT", "AGE", "NOW (PEAK) K1 CLEARS"}, {"MUTE AND SOLO"}, {"KEY, SCALE, KEYS"}};
+    {"ARPEGGIO", "ARP SOURCE"}, {"TRACK MIX", "DELAY", "SHIMMER REVERB"}, {"KEY AND TIME", "DRIFT", "AGE", "NOW (PEAK) K1 CLEARS"}, {"MUTE AND SOLO"}, {"KEY, SCALE, KEYS", "NOTE ENTRY"}, {"PROJECTS", "NAME"}};
 /* the pages' short names, for the black keys */
 static const char *const PG_SHORT[NPG][4] = {
     {""}, {"SND A", "SND B"}, {"AMP", "FILT"}, {"LFO1", "LFO2"}, {"SEQ", "", "PATT"}, {"ARP", "SRC"}, {"MIX", "DELAY", "VERB"},
-    {"KEY", "DRIFT", "AGE", "INFO"}, {""}, {"SCALE"}};
+    {"KEY", "DRIFT", "AGE", "INFO"}, {""}, {"SCALE", "ENTRY"}, {"LOAD", "NAME"}};
 static const uint8_t PG_REF[NPG][4][4] = {
     {{G(GP_DARK), G(GP_ACT), G(GP_SPACE), TP_LEVEL}, {G(GP_SLEEP), G(GP_TEMPO), G(GP_SWING), G(GP_DRIFT)}},
     {{TP_P0, TP_P1, TP_P2, TP_P3}, {TP_P4, TP_P5, TP_P6, TP_P7}},
@@ -156,10 +164,11 @@ static const uint8_t PG_REF[NPG][4][4] = {
     {{G(GP_KEY), G(GP_SCALE), G(GP_TEMPO), G(GP_SWING)}, {G(GP_DRIFT), G(GP_MOVE), G(GP_TUNE), G(GP_THEME)},
      {G(GP_HISS), G(GP_CRACKLE), G(GP_WOW), G(GP_AGE)}},
     {{TP_LEVEL, TP_PAN, TP_DSEND, TP_RSEND}},
-    {{G(GP_KEY), G(GP_SCALE), 0x60, 0x61}},   /* SCALE: 0x60 scale mode on/off, 0x61 the keys' octave (the UI's own) */
+    {{G(GP_KEY), G(GP_SCALE), 0x60, 0x61}, {0x62 + 1, 0x60, 0x61, G(GP_KEY)}},   /* SCALE: 0x60 scale mode on/off, 0x61 the keys' octave, 0x62 the cursor, 0x63 ADVANCE (the UI's own) */
+    {{0}},   /* SAV: drawn by the page itself */
 };
 
-#define STORE_MAGIC 0x414D4235u          /* "AMB5" (conditions, drift, arp source, sleep) */
+#define STORE_MAGIC 0x414D4238u          /* "AMB8" (filter ADSR, on top of AMB7 projects) */
 
 /* SEQ pages 2 and 3: the track's mode's four values */
 static const uint8_t MODE_REF[3][4] = {{TP_DENS, TP_RANGE, TP_STEPS, TP_DEJAVU},
@@ -167,8 +176,9 @@ static const uint8_t MODE_REF[3][4] = {{TP_DENS, TP_RANGE, TP_STEPS, TP_DEJAVU},
                                        {TP_SLEN, TP_SDIR, TP_SCHANCE, TP_SMUT}};
 typedef struct {
     uint32_t magic;
-    uint8_t cur, saved, rsv[2];          /* the scene playing; which slots hold a saved scene (bits) */
-    scene_t slot[4];
+    uint8_t cur, saved, rsv[2];          /* the project playing (0-3 factory, 4-9 yours, NPROJ untitled); which of yours are saved (bits) */
+    char name[NUSER][NAMELEN];           /* your projects' names (A-Z, 0-9, space) */
+    scene_t slot[NUSER];
 } store_t;
 
 /* ------------------------------------------------------------------ shared --- */
@@ -176,9 +186,10 @@ typedef struct { uint8_t trk, note, vel, on; } kev_t;
 #define KS_LEN 1024u
 typedef struct {
     uint8_t on, trk, inst, stage;        /* stage: 1 attack, 2 decay, 3 sustain, 4 release */
+    uint8_t fstage;                      /* the filter envelope's stage, the same numbers */
     int16_t note;
     int32_t gate;                        /* samples until release; -1 held (a key) */
-    float inc, vel, pan, env, ienv;      /* ienv: the bell's index envelope; the pluck's excitation */
+    float inc, vel, pan, env, fe, ienv;   /* fe: the filter envelope */      /* ienv: the bell's index envelope; the pluck's excitation */
     float ph[4], drift, x1, x2, x3;
     float s1, s2;                        /* the filter */
     uint32_t age;
@@ -227,6 +238,7 @@ static inline int32_t amb_clamp(int32_t v, int32_t lo, int32_t hi) { return v < 
 /* a track's values worked out once a block (the engines' own) */
 typedef struct {
     float att, dec_k, sus, rel_k;
+    float fatt, fdec_k, fsus, frel_k;    /* the filter envelope, stepped once per block (the *_k are per block) */
     float g, a1, a2, a3, k;              /* the filter at the track's base cutoff (the envelope moves it per voice) */
     float cut_oct, fenv, keyt, res;
     float lvl, lvl0, dlvl, pan, dsend, rsend;   /* lvl0 + dlvl * i: the level ramped over the block (no clicks) */
