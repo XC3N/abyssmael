@@ -250,6 +250,8 @@ static uint32_t slot(uint32_t bi, uint32_t *arg, const char **lbl, uint32_t *lit
         static const char *const ML[4] = {"MUTE", "SOLO", "CLRM", "CLRS"};
         static const uint8_t HA[4] = {S_SPREV, S_SNEXT, S_PLAY, S_LATCH}, MA[4] = {S_MMODE, S_MMODE, S_MCLR, S_SCLR};
         uint32_t j = bi == 3u ? 0u : bi == 4u ? 1u : bi == 8u ? 2u : 3u;
+        if (BK_TRK[bi] >= (int32_t)NTRK)     /* the sixth track's key: unused with five tracks (the UI thread decides the layout) */
+            return S_NONE;
         if (BK_TRK[bi] >= 0) {
             uint32_t t = (uint32_t)BK_TRK[bi];
             *arg = t;

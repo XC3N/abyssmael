@@ -109,12 +109,11 @@ static void scene_factory(scene_t *s, uint32_t n)
             s->hn[t][i] = DEF_HN[i], s->sn[t][i] = DEF_SN[i], s->cd[t][i] = C_ALWAYS;
         s->son[t] = 0x4949u;
     }
-    if (n == 2) {                            /* TIDE: a Euclidean pluck and a stepped one */
+    if (n == 2) {                            /* TIDE: a Euclidean pluck (track 2) and a stepped bell (track 1) */
         s->tp[1][TP_SMODE] = 1, s->tp[1][TP_RATE] = 1, s->tp[1][TP_EHITS] = 5, s->tp[1][TP_ELEN] = 8;
-        s->tp[5][TP_SMODE] = 2, s->tp[5][TP_RATE] = 1, s->tp[5][TP_OCT] = 4, s->tp[5][TP_SDIR] = 2;
+        s->tp[0][TP_SMODE] = 2, s->tp[0][TP_RATE] = 1, s->tp[0][TP_OCT] = 4, s->tp[0][TP_SDIR] = 2;
     }
-    if (n == 0)                              /* DEEP: the second bell an octave lower */
-        s->tp[5][TP_OCT] = 2, s->tp[5][TP_DENS] = 15, s->tp[5][TP_RATE] = 2;
+    /* (DEEP had a second bell an octave lower on a sixth track: there is no sixth track now) */
 }
 
 static int scene_ok(const scene_t *s)

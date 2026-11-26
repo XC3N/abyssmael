@@ -30,9 +30,9 @@ expect page 10
 tapkey b4
 wait 40
 expect track 1
-tapkey b8
+tapkey b6
 wait 1500
-expect inst 3
+expect inst 1
 expect dirty 1
 shot edit_keys.png
 # ARP: patterns
