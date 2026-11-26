@@ -31,15 +31,16 @@ git push -q -f origin test-all:test-build
 git checkout -q main
 mkdir -p firmware/abyssmael/test/test; cp $T/abyssmael.fwsc $T/sim.wasm firmware/abyssmael/test/test/
 SHA=$(sha256sum $T/abyssmael.fwsc | cut -d' ' -f1)
+WSHA=$(sha256sum $T/sim.wasm | cut -d' ' -f1)
 PRS=$(gh api 'repos/XC3N/abyssmael/pulls?state=open' --jq '[.[]|"#\(.number)"]|join(", ")')
-python3 - "$COMMIT" "$SHA" "$PRS" "${VERSION_TAG#v}" <<'P'
+python3 - "$COMMIT" "$SHA" "$PRS" "${VERSION_TAG#v}" "$WSHA" <<'P'
 import json,sys,datetime
-c,s,prs,ver=sys.argv[1:5]
+c,s,prs,ver,ws=sys.argv[1:6]
 p='firmware/firmwares.json'; d=json.load(open(p))
 e=[x for x in d['firmwares'] if x['id']=='abyssmael'][0]
 t=[x for x in e.get('tests',[]) if x['label']!='test']
 t.append({"label":"test","version":ver+" (test)","commit":c,"built":datetime.date.today().isoformat(),
- "file":"abyssmael/test/test/abyssmael.fwsc","sha256":s,"wasm":"abyssmael/test/test/sim.wasm",
+ "file":"abyssmael/test/test/abyssmael.fwsc","sha256":s,"wasm":"abyssmael/test/test/sim.wasm","wasmSha256":ws,
  "notes":"main plus the open PRs ("+prs+"), merged as branch test-build"})
 e['tests']=t
 json.dump(d,open(p,'w'),indent=2); open(p,'a').write('\n')
