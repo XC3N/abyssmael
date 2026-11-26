@@ -58,6 +58,8 @@ void stress_set(uint32_t on)
         sc.tp[t][TP_RSEND] = 70;
         sc.tp[t][TP_SUS] = 70;
         sc.tp[t][TP_REL] = 60;
+        sc.tp[t][TP_FSUS] = 70;
+        sc.tp[t][TP_FREL] = 60;
         sc.tp[t][TP_MUTE] = 0;
         sc.tp[t][TP_SOLO] = 0;
     }

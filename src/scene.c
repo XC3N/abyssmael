@@ -22,6 +22,8 @@ static void track_inst(scene_t *s, uint32_t t, uint32_t inst)
         s->tp[t][TP_P0 + i] = INST_DEF[inst][i];
     for (i = 0; i < 8u; i++)
         s->tp[t][TP_ATK + i] = INST_DEF[inst][8 + i];
+    for (i = 0; i < 4u; i++)                         /* the filter's ADSR starts as the amp's: the sound as before */
+        s->tp[t][TP_FATK + i] = INST_DEF[inst][8 + i];
 }
 
 /* the four factory scenes */
