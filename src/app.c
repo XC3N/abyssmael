@@ -30,7 +30,10 @@ void app_init(void)
         am_store.magic = STORE_MAGIC;
         am_store.cur = 0;
         am_store.saved = 0;
+        memset(am_store.name, 0, sizeof am_store.name);
     }
+    if (am_store.cur >= NLIST)
+        am_store.cur = 0;
     am_seed ^= plat_ms() * 2654435761u + 1u;
     scene_use(am_store.cur);
 }
@@ -53,7 +56,7 @@ void stress_set(uint32_t on)
     sc = s;
     sc_dirty = 0;
     for (t = 0; t < NTRK; t++) {
-        sc.tp[t][TP_INST] = (uint8_t)(t % NINST);
+        sc.tp[t][TP_INST] = TRACK_ROLE[t];
         sc.tp[t][TP_LEVEL] = 55;
         sc.tp[t][TP_DSEND] = 70;
         sc.tp[t][TP_RSEND] = 70;
@@ -149,6 +152,10 @@ int app_expect(const char *what, int *got)
         *got = scale_mode;
     else if (!strcmp(what, "mute"))
         *got = sc.tp[cur_trk][TP_MUTE];
+    else if (!strcmp(what, "proj"))
+        *got = ui.proj;
+    else if (!strcmp(what, "saved"))
+        *got = am_store.saved;
     else if (!strcmp(what, "dirty"))
         *got = sc_dirty;
     else if (!strcmp(what, "mutes") || !strcmp(what, "solos")) {
@@ -159,8 +166,8 @@ int app_expect(const char *what, int *got)
         *got = ui.mix_mode;
     else if (!strcmp(what, "smode"))
         *got = sc.tp[cur_trk][TP_SMODE];
-    else if (!strcmp(what, "note_edit"))
-        *got = ui.note_edit;
+    else if (!strcmp(what, "adv"))
+        *got = ui.adv;
     else if (!strcmp(what, "cursor"))
         *got = ui.cursor;
     else if (!strcmp(what, "hn0") || !strcmp(what, "hn1") || !strcmp(what, "sn0") || !strcmp(what, "sn1"))
