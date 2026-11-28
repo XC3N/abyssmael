@@ -163,7 +163,7 @@ static const uint8_t PG_REF[NPG][4][4] = {
     {{G(GP_KEY), G(GP_SCALE), 0x60, 0x61}},   /* SCALE: 0x60 scale mode on/off, 0x61 the keys' octave (the UI's own) */
 };
 
-#define STORE_MAGIC 0x414D4236u          /* "AMB6" (delay sync) */
+#define STORE_MAGIC 0x414D4239u          /* "AMB9" (delay sync) */
 
 /* SEQ pages 2 and 3: the track's mode's four values */
 static const uint8_t MODE_REF[3][4] = {{TP_DENS, TP_RANGE, TP_STEPS, TP_DEJAVU},

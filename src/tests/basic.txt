@@ -161,6 +161,29 @@ tapkey b2
 wait 40
 expect page 62
 shot fx_keys.png
+# the delay's tempo sync is FX page 4 (black key 3); the scene's tempo is 70
+tapkey b3
+wait 40
+expect page 63
+expect dsync 0
+expect delay_ms 452
+spin K1 1
+wait 40
+expect dsync 1
+expect delay_ms 214
+spin K1 1
+wait 40
+expect delay_ms 286
+spin K1 4
+wait 40
+expect dsync 6
+expect delay_ms 429
+spin K1 -9
+wait 40
+expect dsync 0
+tapkey b2
+wait 40
+expect page 62
 # MIX: tap to open, mute 2 and 5, solo 4, clear
 tapkey b10
 wait 40
@@ -260,30 +283,3 @@ shot info.png
 tapkey b0
 wait 40
 expect page 70
-
-# the delay's tempo sync: FX has a fourth page, DELAY SYNC; the scene's tempo is 70
-tap FX
-wait 40
-tap FX
-wait 40
-tap FX
-wait 40
-tap FX
-wait 40
-expect page 63
-expect dsync 0
-expect delay_ms 452
-spin K1 1
-wait 40
-expect dsync 1
-expect delay_ms 214
-spin K1 1
-wait 40
-expect delay_ms 286
-spin K1 4
-wait 40
-expect dsync 6
-expect delay_ms 429
-spin K1 -9
-wait 40
-expect dsync 0
