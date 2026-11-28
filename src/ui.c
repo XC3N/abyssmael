@@ -16,7 +16,7 @@ static struct {
     int8_t hold_step;                    /* SEQ 3, STEP: the white key held (K1 sets its note), -1 none */
     uint8_t hold_turned;
     int32_t knote[NKEYS];                /* the note each key started (so a key's note off finds it) */
-    uint8_t redraw;
+    uint8_t redraw, mid_only;            /* mid_only: the redraw is an animation frame (no header or footer) */
     uint8_t cpu_max, cpu_avg;            /* BUILD AND CPU page: the highest load seen, and a slow average */
     uint8_t pk[5];                       /* ... and the highest of each stage (S, B, V, F, R): held until K1 is turned */
     uint32_t cpu_at;
@@ -65,24 +65,32 @@ static void proj_name(uint32_t n, char *t)   /* its name, 8 characters at most *
     }
 }
 
-void app_say(const char *a, const char *b)
+static void say_show(const char *a, const char *b, int show);
+void app_say(const char *a, const char *b) { say_show(a, b, 1); }
+/* said aloud (the announcer) but not shown in the header: for switching pages and tracks, which the screen shows already */
+static void app_say_quiet(const char *a, const char *b) { say_show(a, b, 0); }
+static void say_show(const char *a, const char *b, int show)
 {
     uint32_t i;
     char t[48];
-    for (i = 0; i < 23u && a && a[i]; i++)
-        ui.msg[0][i] = a[i];
-    ui.msg[0][i] = 0;
-    for (i = 0; i < 23u && b && b[i]; i++)
-        ui.msg[1][i] = b[i];
-    ui.msg[1][i] = 0;
-    ui.msg_until = plat_ms() + 1300u;
+    if (show) {
+        for (i = 0; i < 23u && a && a[i]; i++)
+            ui.msg[0][i] = a[i];
+        ui.msg[0][i] = 0;
+        for (i = 0; i < 23u && b && b[i]; i++)
+            ui.msg[1][i] = b[i];
+        ui.msg[1][i] = 0;
+        ui.msg_until = plat_ms() + 1300u;
+    }
     ui.redraw = 1;
     if (ann_on()) {
         t[0] = 0;
-        text_cat(t, ui.msg[0]);
-        if (ui.msg[1][0]) {
+        for (i = 0; i < 23u && a && a[i]; i++)
+            t[i] = a[i];
+        t[i] = 0;
+        if (b && b[0]) {
             text_cat(t, " ");
-            text_cat(t, ui.msg[1]);
+            text_cat(t, b);
         }
         ann_say(t, 0, ANN_NOW);
     }
@@ -101,7 +109,7 @@ static uint32_t page_ref(uint32_t pg, uint32_t sub, uint32_t k)
     }
     if (pg == PG_SEQ && sub > 0u)
         return MODE_REF[sc.tp[cur_trk][TP_SMODE]][k];
-    if (pg == PG_ENV && sub == 1u && sc.tp[cur_trk][TP_INST] == I_BELL) {   /* the bell: the filter's own envelope */
+    if (pg == PG_ENV && sub == 1u) {   /* the filter's own envelope */
         static const uint8_t FE[4] = {TP_FATK, TP_FDEC, TP_FSUS, TP_FREL};
         return FE[k];
     }
@@ -162,6 +170,8 @@ static void ref_text(uint32_t ref, char *t)
     const pdesc_t *d = ref_desc(ref);
     uint32_t v = *ref_ptr(ref);
     t[0] = 0;
+    if (ref == TP_EROT)                      /* ROTATE only counts up to the steps: 15 on 12 steps is 3 */
+        v %= sc.tp[cur_trk][TP_ELEN];
     switch (d->kind) {
     case K_ENUM: text_cat(t, d->names[v]); break;
     case K_OCT: int_text((int32_t)v - 3, t); break;
@@ -180,9 +190,18 @@ static void ref_text(uint32_t ref, char *t)
     default: int_text((int32_t)v, t); break;
     }
 }
+static uint32_t seq_count(uint32_t t);
 static uint32_t ref_frac(uint32_t ref)   /* 0..200: the bar */
 {
     const pdesc_t *d = ref_desc(ref);
+    if (ref == 0x62u) {                      /* the cursor: full on the last step or hit */
+        uint32_t n = seq_count(cur_trk);
+        return n > 1u ? (ui.cursor < n ? ui.cursor : n - 1u) * 200u / (n - 1u) : 0u;
+    }
+    if (ref == TP_EROT) {
+        uint32_t n = sc.tp[cur_trk][TP_ELEN];
+        return n > 1u ? sc.tp[cur_trk][TP_EROT] % n * 200u / (n - 1u) : 0u;
+    }
     return d->hi > d->lo ? (uint32_t)(*ref_ptr(ref) - d->lo) * 200u / (uint32_t)(d->hi - d->lo) : 0u;
 }
 
@@ -192,6 +211,10 @@ static void ref_turn(uint32_t ref, int32_t e)
     uint8_t *p = ref_ptr(ref);
     int32_t v = clamp((int32_t)*p + e * (int32_t)d->step, d->lo, d->hi);
     char t[16];
+    if (ref == TP_EROT) {                    /* ROTATE runs 0 to steps - 1, from where it shows */
+        int32_t n = (int32_t)sc.tp[cur_trk][TP_ELEN];
+        v = clamp((int32_t)(*p % (uint32_t)n) + e, 0, n - 1);
+    }
     if (d->kind == K_SLEEP) {                /* OFF, then 5 to 120 minutes in fives (GP_SLEEP 1, 5, 9 ... 97) */
         int32_t m = clamp((int32_t)sleep_minutes(*p) + e * 5, 0, 120);
         v = m ? (m / 5 - 1) * 4 + 1 : 0;
@@ -204,13 +227,13 @@ static void ref_turn(uint32_t ref, int32_t e)
     if (ref == G(GP_THEME))
         palette_set(sc.gp[GP_THEME]);
     ref_text(ref, t);
-    app_say(ref_name(ref), t);
+    app_say_quiet(ref_name(ref), t);
 }
 
 /* how many pages a button has now: EDIT has a third for the bell (its filter) */
 static uint32_t pg_n(uint32_t pg)
 {
-    return pg == PG_EDIT && sc.tp[cur_trk][TP_INST] == I_BELL ? 3u : PG_N[pg];
+    return pg == PG_EDIT ? 3u : PG_N[pg];
 }
 static void page_open(uint32_t pg, int sub)
 {
@@ -229,7 +252,7 @@ static void page_open(uint32_t pg, int sub)
         char n[4] = {' ', (char)('1' + sub), 0, 0};
         text_cat(t, n);
     }
-    app_say(t, page_title(pg, (uint32_t)sub));
+    app_say_quiet(t, page_title(pg, (uint32_t)sub));
 }
 
 static void track_pick(uint32_t t)
@@ -238,7 +261,7 @@ static void track_pick(uint32_t t)
     char n[2] = {(char)('1' + t), 0};
     cur_trk = (uint8_t)t;
     text_cat(s, n);
-    app_say(s, INST_NAME[sc.tp[t][TP_INST]]);
+    app_say_quiet(s, INST_NAME[sc.tp[t][TP_INST]]);
 }
 
 static int32_t scale_key_note(uint32_t wi)
@@ -254,9 +277,9 @@ static int32_t scale_key_note(uint32_t wi)
  * HOME: PLAY, LATCH. MIX: the five track keys mute or solo (MUTE and SOLO say which), clear the mutes, clear the solos.
  * SAV: LOAD, NEW, SAVE, DEL, NAME (page 1); OK, <, >, SPACE, LIST (page 2). A button's pages are the button again. */
 enum { S_NONE, S_TRK, S_INST, S_ENV, S_LFO, S_SEQ, S_ARP, S_SEND,
-       S_PLAY, S_LATCH, S_MMODE, S_MTRK, S_MCLR, S_SCLR, S_MIX,
+       S_PLAY, S_LATCH, S_RECL, S_RECS, S_MMODE, S_MTRK, S_MCLR, S_SCLR, S_MIX,
        S_SMODE, S_RAND, S_REST,
-       S_PLOAD, S_PNEW, S_PSAVE, S_PDEL, S_PNAME, S_NOK, S_NPREV, S_NNEXT, S_NSPC, S_NLIST };
+       S_DSYNC, S_PLOAD, S_PNEW, S_PSAVE, S_PDEL, S_PNAME, S_NOK, S_NPREV, S_NNEXT, S_NSPC, S_NLIST };
 static const char *const TRK_LBL[NTRK] = {"BEL", "PLK", "PAD", "DRN", "TEX"};
 static const char *const INST_SHORT[NINST] = {"DRN", "PAD", "BEL", "PLK", "TEX"};
 static const char *const INST_3[NINST] = {"DRN", "PAD", "BEL", "PLK", "TEX"};
@@ -286,22 +309,24 @@ static uint32_t slot(uint32_t bi, uint32_t *arg, const char **lbl, uint32_t *lit
         *arg = bi;
         *lbl = TRK_LBL[bi];
         if (pg == PG_MIX) {
-            *lit = ui.mix_mode ? sc.tp[bi][TP_SOLO] : sc.tp[bi][TP_MUTE];
+            *lit = ui.mix_mode == 2u ? bi == cur_trk : ui.mix_mode ? sc.tp[bi][TP_SOLO] : sc.tp[bi][TP_MUTE];
             return S_MTRK;
         }
         *lit = bi == cur_trk;
         return S_TRK;
     }
     if (pg == PG_HOME)
+    {
+        if (c == 2u) { *lbl = "LIVE"; *lit = rec_mode == 1u; return S_RECL; }
+        if (c == 3u) { *lbl = "STEP"; *lit = rec_mode == 2u; return S_RECS; }
         return c < 2u ? (*lbl = c ? "LTC" : "PLY", *lit = c ? latch : playing, c ? S_LATCH : S_PLAY) : S_NONE;
+    }
     if (pg == PG_MIX) {
-        static const char *const ML[4] = {"MUTE", "SOLO", "CLRM", "CLRS"};
-        static const uint8_t MA[4] = {S_MMODE, S_MMODE, S_MCLR, S_SCLR};
-        if (c > 3u)
-            return S_NONE;
+        static const char *const ML[5] = {"SEL", "MUTE", "SOLO", "CLRM", "CLRS"};
+        static const uint8_t MA[5] = {S_MMODE, S_MMODE, S_MMODE, S_MCLR, S_SCLR};
         *lbl = ML[c];
-        *arg = c;
-        *lit = c < 2u && ui.mix_mode == c;
+        *arg = c == 0u ? 2u : c - 1u;                         /* the track keys' mode: 2 select, 0 mute, 1 solo */
+        *lit = c < 3u && ui.mix_mode == *arg;
         return MA[c];
     }
     if (pg == PG_SAV) {
@@ -347,6 +372,13 @@ static uint32_t slot(uint32_t bi, uint32_t *arg, const char **lbl, uint32_t *lit
         return S_RAND;
     case PG_ARP: *lbl = ARP_LBL[c]; *lit = c == 0u ? !p[TP_ARPON] : p[TP_ARPON] && p[TP_ARPPAT] == c - 1u; return S_ARP;
     case PG_FX:
+        if (sub == 3u) {                     /* DELAY SYNC: the note lengths a key sets (K1 has all nine) */
+            static const uint8_t DS[5] = {0, 3, 4, 6, 7};   /* FREE, 1/8, 1/8., 1/4, 1/4. */
+            *arg = DS[c];
+            *lbl = DSYNC_NAME[DS[c]];
+            *lit = sc.gp[GP_DSYNC] == DS[c];
+            return S_DSYNC;
+        }
         *lbl = SEND_LBL[c];
         *lit = p[TP_DSEND] == SEND_SET[c][0] && p[TP_RSEND] == SEND_SET[c][1];
         return S_SEND;
@@ -421,6 +453,26 @@ static void play_toggle(void)
                 vc[i].stage = 4;
     app_say(playing ? "PLAYING" : "STOPPED", "");
 }
+/* REC: note entry. LIVE: seq.c writes what is played; STEP: the white keys write at the cursor on SEQ 3. Same mode again = off */
+static void rec_set(uint32_t m)
+{
+    if (rec_mode == m) {
+        rec_mode = 0;
+        app_say("REC", "OFF");
+        return;
+    }
+    if (sc.tp[cur_trk][TP_SMODE] == 0u) {
+        app_say("SWITCH TRACK TO", "EUCL OR STEP");
+        return;
+    }
+    rec_mode = (uint8_t)m;
+    if (m == 2u) {
+        page_open(PG_SEQ, 2);
+        app_say("REC STEP", "KEYS WRITE");
+    } else {
+        app_say("REC LIVE", playing ? "PLAY KEYS" : "PRESS PLAY");
+    }
+}
 static void latch_toggle(void)
 {
     uint32_t i;
@@ -448,7 +500,7 @@ static void mix_open(void)
     if (ui.page != PG_MIX)
         ui.prev_page = ui.page;
     ui.page = PG_MIX;
-    app_say("MIX", ui.mix_mode ? "SOLO" : "MUTE");
+    app_say("MIX", ui.mix_mode == 2u ? "SELECT" : ui.mix_mode ? "SOLO" : "MUTE");
 }
 static void mix_close(void)
 {
@@ -474,7 +526,7 @@ static void note_enter(uint32_t wi)
         sc.son[cur_trk] |= (uint16_t)(1u << ui.cursor);
     }
     sc_dirty = 1;
-    if (ui.adv)                              /* the setting: move on after a write */
+    if (ui.adv || rec_mode)                  /* the setting (always while REC is armed): move on after a write */
         ui.cursor = (uint8_t)((ui.cursor + 1u) % seq_count(cur_trk));
 }
 
@@ -593,6 +645,11 @@ static void black_key(uint32_t bi, int down)
         sc_dirty = 1;
         app_say("SENDS", SEND_LBL[arg]);
         break;
+    case S_DSYNC:
+        sc.gp[GP_DSYNC] = (uint8_t)arg;
+        sc_dirty = 1;
+        app_say("DELAY SYNC", DSYNC_NAME[arg]);
+        break;
     case S_PLOAD:
         if (ui.proj < NFACT || proj_saved(ui.proj)) {
             char nm[12];
@@ -624,8 +681,14 @@ static void black_key(uint32_t bi, int down)
     case S_NLIST: page_open(PG_SAV, 0); break;
     case S_PLAY: play_toggle(); break;
     case S_LATCH: latch_toggle(); break;
-    case S_MMODE: ui.mix_mode = (uint8_t)arg; app_say("TRACK KEYS", arg ? "SOLO" : "MUTE"); break;
+    case S_RECL: rec_set(1u); break;
+    case S_RECS: rec_set(2u); break;
+    case S_MMODE: ui.mix_mode = (uint8_t)arg; app_say("TRACK KEYS", arg == 2u ? "SELECT" : arg ? "SOLO" : "MUTE"); break;
     case S_MTRK:
+        if (ui.mix_mode == 2u) {             /* SEL: the key picks the track */
+            track_pick(arg);
+            break;
+        }
         t = ui.mix_mode ? TP_SOLO : TP_MUTE;
         sc.tp[arg][t] ^= 1u;
         sc_dirty = 1;
@@ -724,7 +787,7 @@ static void input(void)
             play_toggle();
             break;
         case B_REC:
-            latch_toggle();
+            if (rec_mode) { rec_mode = 0; app_say("REC", "OFF"); } else rec_set(1u);
             break;
         case B_OCTDN:
         case B_OCTUP: {
@@ -776,8 +839,8 @@ static void input(void)
                 continue;
             }
             if (k == 0u && ui.page == PG_SEQ && ui.sub[PG_SEQ] == 2u && sc.tp[cur_trk][TP_SMODE]) {   /* K1: the cursor */
-                int32_t cnt = (int32_t)seq_count(cur_trk), c = ((int32_t)ui.cursor + e) % cnt;
-                ui.cursor = (uint8_t)(c < 0 ? c + cnt : c);
+                int32_t cnt = (int32_t)seq_count(cur_trk), c = clamp((int32_t)ui.cursor + e, 0, cnt - 1);   /* stops at the first and last */
+                ui.cursor = (uint8_t)c;
                 ui.redraw = 1;
                 continue;
             }
@@ -815,11 +878,10 @@ static void input(void)
     {   /* the lights: the page's button, PLAY, SEL, REC, SAVE; in scale mode the black keys show the track, page,
          * mute and solo, and the white keys glow */
         uint32_t lb = btn | (PG_BTN[ui.page] < NB ? 1u << PG_BTN[ui.page] : 0u), lk = keys, dk = 0, latched = 0;
-        if (playing)
-            lb |= 1u << B_PLAY;
+        lb |= playing ? LED_PLAY_GREEN : 1u << B_PLAY;     /* PLAY: green while playing, red when stopped */
         if (scale_mode)
             lb |= 1u << B_SEL;
-        if (latch)
+        if (latch || rec_mode)
             lb |= 1u << B_REC;
         if (sc_dirty)
             lb |= 1u << B_SAVE;
@@ -836,6 +898,7 @@ static void input(void)
         for (k = 0; k < NKEYS; k++)
             latched |= (uint32_t)ui.latched[k] << k;
         lk |= latched;
+        if (rec_dirty) { sc_dirty = 1; rec_dirty = 0; }
         if (scale_mode) {
             uint32_t len = SCALE_LEN[sc.gp[GP_SCALE]];
             for (k = 0; k < 11u; k++) {          /* the black keys: lit when on, glowing when they do something */

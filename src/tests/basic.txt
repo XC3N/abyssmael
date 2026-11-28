@@ -58,6 +58,16 @@ shot bell_strike.png
 spin PRESET 1
 wait 40
 shot bell_filter.png
+spin K2 40
+spin K1 -9
+spin K3 30
+spin K4 20
+wait 10
+shot bell_filter_res.png
+spin K2 -40
+spin K1 9
+spin K3 -30
+spin K4 -20
 tapkey b1
 wait 40
 expect track 1
@@ -211,20 +221,28 @@ tapkey b4
 wait 40
 expect mutes 18
 shot mix_mute.png
-tapkey b6
+tapkey b7
 wait 40
 expect mix_mode 1
 tapkey b3
 wait 40
 expect solos 8
+tapkey b5
+wait 40
+expect mix_mode 2
+tapkey b2
+wait 40
+expect track 2
+tapkey b7
+wait 40
 shot mix_solo.png
 wav solo.wav
 wait 6000
 wavstop
-tapkey b8
+tapkey b9
 wait 40
 expect solos 0
-tapkey b7
+tapkey b8
 wait 40
 expect mutes 0
 tapkey b10
@@ -373,3 +391,132 @@ tapkey w3
 wait 40
 expect sn1 3
 expect cursor 2
+
+# the delay's tempo sync: FX has a fourth page, DELAY SYNC; the scene's tempo is 70
+tap FX
+wait 40
+tap FX
+wait 40
+expect page 63
+expect dsync 0
+expect delay_ms 452
+spin K1 1
+wait 40
+expect dsync 1
+expect delay_ms 214
+spin K1 1
+wait 40
+expect delay_ms 286
+spin K1 4
+wait 40
+expect dsync 6
+expect delay_ms 429
+shot fx_sync.png
+spin K1 -9
+wait 40
+expect dsync 0
+
+# the instruments EDIT 1 and 2, one picture each, then ENV and the filter
+wait 1500
+tap EDIT
+wait 40
+tapkey b1
+wait 40
+spin PRESET 1
+wait 40
+shot pluck_a.png
+spin PRESET 1
+wait 40
+shot pluck_b.png
+spin PRESET 1
+wait 40
+shot pluck_c.png
+tapkey b2
+wait 40
+spin PRESET 1
+wait 40
+shot pad_a.png
+spin PRESET 1
+wait 40
+shot pad_b.png
+spin PRESET 1
+wait 40
+shot pad_c.png
+tapkey b3
+wait 40
+spin PRESET 1
+wait 40
+shot drone_a.png
+spin PRESET 1
+wait 3000
+shot drone_b.png
+spin PRESET 1
+wait 40
+shot drone_c.png
+tapkey b4
+wait 40
+spin PRESET 1
+wait 3000
+shot texture_a.png
+spin PRESET 1
+wait 3000
+shot texture_b.png
+spin PRESET 1
+wait 40
+shot texture_c.png
+tap ENV
+wait 40
+shot texture_env1.png
+spin PRESET 1
+wait 40
+shot texture_env2.png
+
+# LFO pictures: each shape
+wait 1500
+tap LFO
+wait 40
+spin K3 -9
+wait 40
+shot lfo_sine.png
+spin K3 1
+wait 40
+shot lfo_triangle.png
+spin K3 1
+wait 40
+shot lfo_saw.png
+spin K3 1
+wait 40
+shot lfo_square.png
+spin K3 1
+wait 40
+shot lfo_random.png
+spin K3 1
+wait 40
+shot lfo_drift.png
+spin K3 1
+wait 40
+
+# a typical envelope, for the picture
+wait 1500
+tapkey b1
+wait 40
+tapkey b0
+wait 40
+tap ENV
+wait 40
+spin PRESET -1
+wait 40
+spin K1 20
+spin K2 -5
+spin K3 30
+spin K4 -10
+wait 40
+shot env_typical.png
+spin PRESET 1
+wait 40
+spin K1 15
+spin K2 -10
+spin K3 25
+spin K4 -5
+wait 40
+shot env_filter_typical.png

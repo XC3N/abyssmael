@@ -11,6 +11,10 @@
 #define PAL6 RGB(39, 38, 64)
 #define PAL8 RGB(62, 31, 71)
 #define PAL9 RGB(77, 25, 77)
+/* the ground of the pictures: much darker than the palette's indigo, because the panel lifts dark colours a long way (a photo of
+ * PAL6 to PAL4 on the device showed a pale blue) */
+#define GND_A RGB(3, 3, 10)
+#define GND_B RGB(2, 9, 14)
 #define ACC1 RGB(19, 111, 99)
 #define ACC2 RGB(34, 170, 161)
 #define ACC3 RGB(76, 224, 210)
@@ -18,9 +22,27 @@ static const int8_t SIN96[96] = {100,100,99,98,97,95,92,90,87,83,79,75,71,66,61,
     -26,-32,-38,-44,-50,-56,-61,-66,-71,-75,-79,-83,-87,-90,-92,-95,-97,-98,-99,-100,-100,-100,-99,-98,-97,-95,
     -92,-90,-87,-83,-79,-75,-71,-66,-61,-56,-50,-44,-38,-32,-26,-20,-13,-7,0,7,13,20,26,32,38,44,50,56,61,66,
     71,75,79,83,87,90,92,95,97,98,99,100};   /* (cos of step i/96 of a turn: sin is the same table a quarter turn on) */
+/* EUCL ring: hit h of n runs plum, teal, bright teal, so the hits can be told apart while the pattern rotates */
+static uint16_t hit_colour(uint32_t h, uint32_t n)
+{
+    static const uint8_t G[3][3] = {{77, 25, 77}, {19, 111, 99}, {76, 224, 210}};
+    uint32_t pos = n > 1u ? h * 200u / (n - 1u) : 0u;   /* 0..200 */
+    uint32_t i = pos >= 100u ? 1u : 0u, f = pos - i * 100u, c[3], j;
+    for (j = 0; j < 3u; j++)
+        c[j] = ((uint32_t)G[i][j] * (100u - f) + (uint32_t)G[i + 1u][j] * f) / 100u;
+    return RGB(c[0], c[1], c[2]);
+}
+
+static uint32_t pic_moves(void)         /* the pictures that move by themselves: the bell METAL, and the warp-field ones */
+{
+    uint32_t inst = sc.tp[cur_trk][TP_INST];
+    if (ui.page != PG_EDIT)
+        return 0;
+    return ui.sub[PG_EDIT] == 0u && inst == I_BELL ? 1u : (inst == I_TEXTURE && ui.sub[PG_EDIT] < 2u) || (inst == I_DRONE && ui.sub[PG_EDIT] == 1u);
+}
 static uint32_t bell_page(uint32_t pg)
 {
-    return (pg == PG_EDIT || pg == PG_ENV) && sc.tp[cur_trk][TP_INST] == I_BELL;
+    return pg == PG_EDIT || pg == PG_ENV || pg == PG_LFO;
 }
 static void bell_dot(int32_t cx, int32_t cy, int32_t r, uint32_t a, uint16_t c)   /* a point on a circle, a in 0..95 */
 {
@@ -62,6 +84,551 @@ static void env_curve(uint8_t *pt, uint32_t a, uint32_t dc, uint32_t s, uint32_t
         pt[x] = (uint8_t)(v < 0 ? 0 : v);
     }
 }
+/* METAL, drawn per pixel: the distance of each pixel to the centre goes through a table, then two per-frame tables (the rings
+ * and the glow, by distance) give an intensity that is added to a ground that fades from indigo down. The beat splits it
+ * into two centres that circle slowly; the rings drift outward and brighten when the bell is struck. */
+static uint8_t d3_tab[4097];                 /* 3 x the distance (in pixels), for a squared distance 0..4096 */
+static uint8_t d3_ready, bell_ring, bell_last;
+/* a value in the big type, in the smaller one when it would run into the next column (FREE, 1/8., names) */
+static void big_value(int32_t x, const char *t)
+{
+    if (text_w(&FONT_L, t) > 56 && text_w(&FONT_M, t) > 56 && text_w(&FONT_S, t) > 56)
+        cv_text(x, 124, &FONT_XS, t, C_WHITE);
+    else if (text_w(&FONT_L, t) > 56 && text_w(&FONT_M, t) > 56)
+        cv_text(x, 122, &FONT_S, t, C_WHITE);
+    else if (text_w(&FONT_L, t) > 56)
+        cv_text(x, 118, &FONT_M, t, C_WHITE);
+    else
+        cv_text(x, 114, &FONT_L, t, C_WHITE);
+}
+static void d3_init(void)
+{
+    uint32_t r = 0, i;
+    if (d3_ready)
+        return;
+    for (i = 0; i <= 4096u; i++) {           /* once: 3 x sqrt(d2) by counting */
+        while ((r + 1u) * (r + 1u) <= i * 9u)
+            r++;
+        d3_tab[i] = (uint8_t)r;
+    }
+    d3_ready = 1;
+}
+/* add light to a pixel: i 0..255 of the colour (r 0..31, g 0..63, b 0..31 at full) */
+static void light_px(int32_t x, int32_t y, uint32_t i, uint32_t cr, uint32_t cg, uint32_t cb)
+{
+    uint16_t v;
+    uint32_t r, g, b;
+    if ((uint32_t)x >= cv_w || (uint32_t)y >= 162u)
+        return;
+    v = swap16(cv_px[(uint32_t)y * cv_w + (uint32_t)x]);
+    r = (uint32_t)(v >> 11) + (cr * i >> 8);
+    g = (uint32_t)((v >> 5) & 63u) + (cg * i >> 8);
+    b = (uint32_t)(v & 31u) + (cb * i >> 8);
+    cv_px[(uint32_t)y * cv_w + (uint32_t)x] = swap16((uint16_t)((r > 31u ? 31u : r) << 11 | (g > 63u ? 63u : g) << 5 | (b > 31u ? 31u : b)));
+}
+/* one row of the ground, dithered: the blend is worked out in 8 bits per channel and a 4x4 Bayer pattern decides each pixel's
+ * rounding to 565, so the few dark levels the panel has don't show as bands. f is 0..100 from GND_A to GND_B */
+static void ground_row(int32_t gy, uint32_t f)
+{
+    static const int8_t BY[16] = {-8, 0, -6, 2, 4, -4, 6, -2, -5, 3, -7, 1, 7, -1, 5, -3};
+    int32_t x;
+    int32_t r = 3 + (2 - 3) * (int32_t)f / 100, g = 3 + (9 - 3) * (int32_t)f / 100, b = 10 + (14 - 10) * (int32_t)f / 100;
+    for (x = 0; x < 240; x++) {
+        int32_t d = BY[(gy & 3) * 4 + (x & 3)], rr = (r + d) >> 3, gg = (g + d) >> 2, bb = (b + d) >> 3;
+        rr = rr < 0 ? 0 : rr > 31 ? 31 : rr; gg = gg < 0 ? 0 : gg > 63 ? 63 : gg; bb = bb < 0 ? 0 : bb > 31 ? 31 : bb;
+        cv_px[(uint32_t)gy * cv_w + (uint32_t)x] = swap16((uint16_t)(rr << 11 | gg << 5 | bb));
+    }
+}
+/* a soft glow of radius rad (<= 12) around a point, in a 565 colour, amount 0..255 */
+static void glow_at(int32_t cx, int32_t cy, int32_t rad, uint16_t col, uint32_t amt)
+{
+    int32_t x, y;
+    uint32_t cr = col >> 11, cg = (col >> 5) & 63u, cb = col & 31u, r2 = (uint32_t)(rad * rad);
+    for (y = -rad; y <= rad; y++)
+        for (x = -rad; x <= rad; x++) {
+            uint32_t d2 = (uint32_t)(x * x + y * y);
+            if (d2 < r2) {
+                static const int8_t BY[16] = {-6, 2, -4, 4, 6, -2, 8, 0, -3, 5, -5, 3, 9, 1, 7, -1};   /* 4x4 Bayer: no banding in the fall-off */
+                uint32_t q = (r2 - d2) * 255u / r2, l = q * q / 255u * amt / 255u;
+                int32_t dl = (int32_t)l + (l ? BY[((cy + y) & 3) * 4 + ((cx + x) & 3)] : 0);
+                light_px(cx + x, cy + y, dl < 0 ? 0u : (uint32_t)dl, cr, cg, cb);
+            }
+        }
+}
+static void disc_at(int32_t cx, int32_t cy, int32_t rad, uint16_t col)
+{
+    int32_t x, y;
+    for (y = -rad; y <= rad; y++)
+        for (x = -rad; x <= rad; x++)
+            if (x * x + y * y <= rad * rad + rad / 2)
+                cv_pset(cx + x, cy + y, col);
+}
+static void bell_metal(const uint8_t *p)
+{
+    uint32_t ratio = p[TP_P0], idx = p[TP_P1], dec = p[TP_P2], beat = p[TP_P3];
+    uint32_t t = plat_ms(), act = trk_active[cur_trk], n = 3u + idx * 8u / 100u, gap3 = 3u * (5u + ratio * 8u / 100u), i, y, x;
+    uint32_t drift3 = (t * (6u + ratio * 12u / 100u) / 1000u) % gap3, en;
+    uint8_t lut[256];
+    int32_t cxa, cya, cxb, cyb, sep = (int32_t)beat * 14 / 100, two = beat >= 4u;
+    uint32_t ph = ((t & 0x3FFFFu) * (40u + beat * 240u / 100u)) / 6545u;
+    d3_init();
+    if (act > bell_last)                      /* a note began on this track: the bell is struck */
+        bell_ring = 255;
+    bell_last = (uint8_t)act;
+    bell_ring = (uint8_t)(bell_ring - (uint32_t)bell_ring * (4u + dec * 16u / 100u) / 256u);
+    en = 64u + (uint32_t)bell_ring * 191u / 255u;       /* the rings' energy 64..255 */
+    for (i = 0; i < 256u; i++) {              /* intensity by 3 x distance: the rings, then the glow */
+        uint32_t v = 0, g, ri, w, hw3, f, th;
+        int32_t xx = (int32_t)i - 18 - (int32_t)drift3;
+        if (xx >= 0) {
+            ri = (uint32_t)xx / gap3;
+            w = (uint32_t)xx % gap3;
+            if (ri < n) {
+                th = 6u + (n - ri) * 16u / n;                           /* thickness in tenths of a pixel */
+                hw3 = th * 3u / 20u + 1u;
+                w = w > gap3 / 2u ? w - gap3 / 2u : gap3 / 2u - w;      /* distance from the ring's middle line, in 3x pixels */
+                v = w >= hw3 ? 0u : 255u - w * 255u / hw3;
+                f = (n + 1u - ri) * 255u / (n + 1u);
+                if (dec > 33u)
+                    f = f * f / 255u;
+                if (dec > 66u)
+                    f = f * f / 255u;
+                v = v * f / 255u * en / 255u;
+            }
+        }
+        g = i >= 162u ? 0u : (162u - i) * 255u / 162u;                 /* the glow: a soft disc, 0.3 at the middle */
+        g = g * g / 255u * (60u + (uint32_t)bell_ring * 80u / 255u) / 255u;
+        lut[i] = (uint8_t)(v + g > 255u ? 255u : v + g);
+    }
+    cxa = 120 - sep * (int32_t)(two) * SIN96[(ph + 72u) % 96u] / 100;
+    cya = 50 - sep * (int32_t)two * SIN96[(ph * 13u / 10u) % 96u] * 35 / 10000;
+    cxb = 120 + sep * (int32_t)two * SIN96[(ph + 72u) % 96u] / 100;
+    cyb = 50 + sep * (int32_t)two * SIN96[(ph * 13u / 10u) % 96u] * 35 / 10000;
+    for (y = 0; y < 100u; y++) {
+        uint16_t gc = mixc(GND_A, GND_B, y);      /* the ground fades from indigo to blue-teal going down */
+        uint32_t gr = gc >> 11, gg = (gc >> 5) & 63u, gb = gc & 31u;
+        cv_rect(0, (int32_t)y, 240, 1, gc);
+        for (x = 42; x < 198u; x++) {
+            int32_t ax = (int32_t)x - cxa, ay = (int32_t)y - cya;
+            uint32_t da = (uint32_t)(ax * ax + ay * ay), db = 0xFFFFu, ia = 0, ib = 0, r, g, b;
+            if (da <= 4096u)
+                ia = lut[d3_tab[da]];
+            if (two) {
+                int32_t bx = (int32_t)x - cxb, by = (int32_t)y - cyb;
+                db = (uint32_t)(bx * bx + by * by);
+                if (db <= 4096u)
+                    ib = lut[d3_tab[db]];
+            }
+            if (!(ia | ib))
+                continue;
+            r = gr + ((9u * ia + 4u * ib) >> 8);
+            g = gg + ((56u * ia + 42u * ib) >> 8);
+            b = gb + ((26u * ia + 20u * ib) >> 8);
+            cv_px[y * cv_w + x] = swap16((uint16_t)((r > 31u ? 31u : r) << 11 | (g > 63u ? 63u : g) << 5 | (b > 31u ? 31u : b)));
+        }
+    }
+}
+
+/* a curve given as heights in sixteenths of a pixel for n columns: smooth (each point split over two pixels), the steep parts joined,
+ * with a soft bloom either side */
+static void soft_plot(int32_t x, int32_t y16, uint32_t k, uint32_t cr, uint32_t cg, uint32_t cb);
+static void wave_draw(const int32_t *y16, uint32_t n)
+{
+    uint32_t x;
+    for (x = 0; x < n; x++) {
+        int32_t y = y16[x], lo = y, hi = y, yy;
+        if (x) {
+            int32_t pv = y16[x - 1];
+            lo = pv < y ? pv : y;
+            hi = pv < y ? y : pv;
+        }
+        for (yy = lo; yy < hi - 16; yy += 16)            /* a steep stretch: fill it in */
+            soft_plot(4 + (int32_t)x, yy + 16, 180u, 9, 56, 26);
+        soft_plot(4 + (int32_t)x, y, 255u, 9, 56, 26);
+        soft_plot(4 + (int32_t)x, y - 32, 80u, 5, 36, 20);
+        soft_plot(4 + (int32_t)x, y + 32, 80u, 5, 36, 20);
+    }
+}
+/* ---- the other instruments' EDIT 1 and 2: one picture each, from the four values (the bell's are in bell_draw) ---- */
+static int32_t sin96(uint32_t i) { return SIN96[(i + 72u) % 96u]; }
+static int32_t cos96(uint32_t i) { return SIN96[i % 96u]; }
+/* a point at (x16, y16)/16 splatted over four pixels (bilinear), added as light: the building block of smooth rings */
+static void splat(int32_t x16, int32_t y16, uint32_t k, uint32_t cr, uint32_t cg, uint32_t cb)
+{
+    int32_t x = x16 >> 4, y = y16 >> 4, fx = x16 & 15, fy = y16 & 15;
+    light_px(x, y, k * (uint32_t)((16 - fx) * (16 - fy)) >> 8, cr, cg, cb);
+    light_px(x + 1, y, k * (uint32_t)(fx * (16 - fy)) >> 8, cr, cg, cb);
+    light_px(x, y + 1, k * (uint32_t)((16 - fx) * fy) >> 8, cr, cg, cb);
+    light_px(x + 1, y + 1, k * (uint32_t)(fx * fy) >> 8, cr, cg, cb);
+}
+/* an ellipse drawn smooth: sub-pixel points close enough to join, splatted over four pixels each; wob: a ripple 0..100.
+ * c is a 565 colour, taken as the light to add. */
+static void dot_ring(int32_t cx, int32_t cy, int32_t rx, int32_t ry, uint16_t c, uint32_t wob)
+{
+    uint32_t a, n = 96u + (uint32_t)(rx > ry ? rx : ry) * 3u, cr = c >> 11, cg = (c >> 5) & 63u, cb = c & 31u;
+    for (a = 0; a < n; a++) {
+        float th = (float)a * 6.2831853f / (float)n, w = wob ? fm_sinf(th * 6.0f) * (float)wob * 0.05f : 0.0f;
+        splat((int32_t)(((float)cx + ((float)rx + w) * fm_sinf(th)) * 16.0f), (int32_t)(((float)cy - ((float)ry + w) * fm_sinf(th + 1.5707963f)) * 16.0f), 150u, cr, cg, cb);
+    }
+}
+static void string_line(const uint32_t *h, int32_t cy, int32_t amp, uint32_t nh, uint32_t pos, uint32_t damp, uint16_t col)
+{
+    int32_t x, py = cy, px = 4;
+    for (x = 0; x < 232; x++) {
+        int32_t sum = 0, y;
+        uint32_t m;
+        for (m = 1; m <= nh; m++) {
+            int32_t pk = sin96((m * (uint32_t)(pos * 48u / 100u + 1u) * 2u) % 96u) * 100 / 100;   /* the pluck point's weight on this harmonic */
+            sum += sin96((m * 48u * (uint32_t)x / 232u) % 96u) * (pk < 0 ? -pk : pk) / (int32_t)m / 100;
+        }
+        y = cy - sum * amp / 100 * (100 - (int32_t)damp * 85 / 100 * x / 232) / 100;
+        if (x)
+            cv_line(px, py, 4 + x, y, col);
+        px = 4 + x;
+        py = y;
+    }
+    (void)h;
+}
+/* ---- the warp field (the idea from hadal's picture): a small 8-bit field, moved a little each frame by a flow that
+ * wobbles, faded, with marks added; a palette colours it, a 2x2 dither lifts the steps. Drone GRAIN and the texture
+ * pictures use it. 120 x 50, shown at twice the size. ---- */
+#define FW 120
+#define FH 50
+static uint8_t fld[2][FW * FH] PLAT_POOL;
+static uint8_t fld_cur, fld_key = 0xFFu;
+static uint32_t fld_t, fld_rng = 99u;
+static uint16_t fld_lut[16];
+static uint32_t fld_rand(void) { fld_rng = fld_rng * 1103515245u + 12345u; return fld_rng >> 8; }
+static void fld_mark(int32_t x, int32_t y, uint32_t v)
+{
+    uint32_t o;
+    if ((uint32_t)x >= FW || (uint32_t)y >= FH)
+        return;
+    o = (uint32_t)y * FW + (uint32_t)x;
+    fld[fld_cur][o] = (uint8_t)(fld[fld_cur][o] + v > 255u ? 255u : fld[fld_cur][o] + v);
+}
+/* one frame: flow (x, y in 1/16 px a frame), wobble (rows swaying, 0..), decay 0..255, then show it in the picture */
+static void fld_step(int32_t flx, int32_t fly, int32_t wob, uint32_t decay)
+{
+    uint8_t *S = fld[fld_cur], *D = fld[fld_cur ^ 1u];
+    int32_t x, y;
+    fld_t++;
+    for (y = 0; y < FH; y++) {
+        int32_t sw = (int32_t)(fm_sinf((float)y * 0.31f + (float)fld_t * 0.11f) * (float)wob * 16.0f);
+        for (x = 0; x < FW; x++) {
+            int32_t sx = x * 16 - flx - sw, sy = y * 16 - fly, ix = sx >> 4, iy = sy >> 4, fx = sx & 15, fy = sy & 15, v;
+            int32_t a, b;
+            if (ix < 0) ix += FW;
+            if (ix >= FW) ix -= FW;
+            if (iy < 0) iy = 0;
+            if (iy >= FH - 1) iy = FH - 2;
+            a = S[iy * FW + ix] * (16 - fx) + S[iy * FW + (ix + 1) % FW] * fx;
+            b = S[(iy + 1) * FW + ix] * (16 - fx) + S[(iy + 1) * FW + (ix + 1) % FW] * fx;
+            v = ((a * (16 - fy) + b * fy) >> 8) * (int32_t)decay >> 8;
+            D[y * FW + x] = (uint8_t)(v > 0 ? v - (v > 2) : 0);
+        }
+    }
+    fld_cur ^= 1u;
+}
+static void fld_show(uint16_t lo, uint16_t mid, uint16_t hi, int32_t gain)
+{
+    static const int8_t BY[4] = {-5, 3, 5, -3};
+    const uint8_t *F = fld[fld_cur];
+    int32_t x, y, i;
+    for (i = 0; i < 16; i++)             /* the ramp: ground, then mid, then hi */
+        fld_lut[i] = i < 8 ? mixc(lo, mid, (uint32_t)i * 100u / 7u) : mixc(mid, hi, (uint32_t)(i - 8) * 100u / 7u);
+    for (y = 0; y < 100; y++)
+        for (x = 0; x < 240; x++) {
+            int32_t v = F[(y >> 1) * FW + (x >> 1)] * gain / 2 + BY[(y & 1) * 2 + (x & 1)];
+            v = v < 0 ? 0 : v > 255 ? 255 : v;
+            cv_px[(uint32_t)y * cv_w + (uint32_t)x] = swap16(fld_lut[v >> 4]);
+        }
+}
+static void inst_pic(const uint8_t *p, uint32_t sub)
+{
+    uint32_t inst = p[TP_INST], a = p[TP_P0 + sub * 4u], b = p[TP_P1 + sub * 4u], c = p[TP_P2 + sub * 4u], e = p[TP_P3 + sub * 4u], i, rng = 12345u + inst * 977u + sub * 31u;
+    int32_t gy, x, y;
+    for (gy = 0; gy < 100; gy++)
+        ground_row(gy, (uint32_t)gy);
+    if (inst == I_PLUCK && sub == 0u) {      /* STRING: damp, bright, sustain, position: a standing wave, the pluck point marked */
+        uint32_t nh = 1u + b * 6u / 100u, m;
+        static int32_t y16[232];
+        float amp = 8.0f + (float)c * 0.36f, pos = (float)e / 100.0f;
+        for (x = 0; x < 232; x++) {
+            float u = (float)x / 231.0f, sum = 0.0f;
+            for (m = 1; m <= nh; m++)                   /* each harmonic, weighted by where the string was plucked */
+                sum += fm_fabsf(fm_sinf(3.14159265f * (float)m * pos)) * fm_sinf(3.14159265f * (float)m * u) / (float)m;
+            sum *= 1.6f * (1.0f - 0.85f * ((float)a / 100.0f) * u);                    /* the damping takes the far end down */
+            y16[x] = (int32_t)((50.0f - amp * sum) * 16.0f);
+        }
+        wave_draw(y16, 232);
+        x = 4 + (int32_t)e * 224 / 100;
+        glow_at(x, 50, 12, ACC3, 200u);
+        disc_at(x, 50, 3, C_WHITE);
+    } else if (inst == I_PLUCK) {            /* BOW: bow, octave, spread, drift: three strings, further apart with spread, thicker with the bow */
+        float sep = 8.0f + (float)c * 0.18f, amp = 6.0f + (float)a * 0.12f, cyc = 2.0f + (float)b / 14.0f;
+        int32_t s, k, th = 1 + (int32_t)a * 2 / 100;
+        static int32_t y16[232];
+        for (s = -1; s <= 1; s++)
+            for (k = 0; k < th; k++) {
+                for (x = 0; x < 232; x++) {
+                    float u = (float)x / 231.0f;
+                    y16[x] = (int32_t)((50.0f + (float)s * sep - amp * fm_sinf(6.2831853f * (cyc * u + (float)e / 100.0f + (float)(s + 1) * 0.12f))) * 16.0f) + k * 20;
+                }
+                wave_draw(y16, 232);
+            }
+    } else if (inst == I_PAD && sub == 0u) { /* CHOIR: detune, voices, shape, chorus: voices as dots, scattered by the detune, bigger with the shape, a halo of chorus */
+        uint32_t n = 2u + b * 9u / 100u;
+        for (i = 0; i < n; i++) {
+            int32_t vx = 20 + (int32_t)i * 200 / (int32_t)(n - 1u), vy = 50 + ((int32_t)((i * 37u) % 11u) - 5) * (int32_t)a * 7 / 500;
+            glow_at(vx, vy, 4 + (int32_t)c / 14 + (int32_t)e / 12, ACC2, 70u + e);
+            disc_at(vx, vy, 2 + (int32_t)c / 25, i % 2u ? ACC3 : ACC2);
+        }
+    } else if (inst == I_PAD) {              /* BLOOM: harmonic, vibrato, air, width: ellipses, rippled by the vibrato, wider with the width */
+        uint32_t n = 2u + a * 6u / 100u;
+        for (i = 0; i < n; i++)
+            dot_ring(120, 50, (6 + (int32_t)i * 7) * (100 + (int32_t)e) / 100, 6 + (int32_t)i * 6, mixc(ACC3, PAL3, i * 100u / n), b);
+        glow_at(120, 50, 12, ACC2, 80u + c);
+    } else if (inst == I_DRONE && sub == 0u) { /* STACK: detune, fifth, octave, sub: four bars, each as long as its level; the detune doubles them */
+        static const uint8_t lv[4] = {100, 0, 0, 0};
+        uint32_t vals[4];
+        vals[0] = lv[0], vals[1] = b, vals[2] = c, vals[3] = e;
+        for (i = 0; i < 4u; i++) {
+            int32_t by = 12 + (int32_t)(3u - i) * 22, len = 20 + (int32_t)vals[i] * 190 / 100;
+            glow_at(120, by + 6, 12, ACC2, 40u + vals[i]);
+            cv_rect(120 - len / 2, by, len, 12, mixc(PAL0, ACC3, vals[i]));
+            if (a > 4u)
+                cv_rect(120 - len / 2 + (int32_t)a / 8, by + 14, len, 2, ACC1);
+        }
+    } else if (inst == I_DRONE || inst == I_TEXTURE) {   /* the warp field: GRAIN (breath, drive, drift, noise), WEATHER (color, width, gust, depth), DUST (crackle, pitched, move, hiss) */
+        uint8_t key = (uint8_t)(inst * 2u + sub);
+        int32_t r, j, k;
+        uint32_t decay = 236u;
+        int32_t flx = 6, fly = 0, wob = 0;
+        if (fld_key != key) {
+            for (r = 0; r < FW * FH; r++)
+                fld[0][r] = fld[1][r] = 0;
+            fld_key = key;
+        }
+        if (inst == I_DRONE) {               /* a wave driven into clipping, written into the field each frame, smeared by the drift */
+            float amp = 6.0f + (float)b * 0.17f;
+            flx = 4 + (int32_t)c / 10;
+            wob = (int32_t)c / 40;
+            decay = 230u + a / 10u;
+            for (r = 0; r < FW; r++) {
+                float u = (float)r / (float)(FW - 1), v = amp * fm_sinf(6.2831853f * (3.0f * u + (float)fld_t * 0.02f));
+                v = v > 16.0f ? 16.0f : v < -16.0f ? -16.0f : v;
+                fld_mark(r, FH / 2 - (int32_t)v, 110u);
+                fld_mark(r, FH / 2 - (int32_t)v + 1, 70u);
+            }
+            for (r = 0; r < (int32_t)e / 6; r++)
+                fld_mark((int32_t)(fld_rand() % FW), (int32_t)(fld_rand() % FH), 120u);
+        } else if (sub == 0u) {              /* clouds: soft blobs born at the right, carried left, sheared by the gust */
+            flx = -(6 + (int32_t)c / 8);
+            wob = (int32_t)c / 60;
+            decay = 238u + e / 25u;
+            if (fld_t % 4u == 0u) {
+                int32_t cy = 6 + (int32_t)(fld_rand() % 38u), rr = 4 + (int32_t)b / 8;
+                for (j = -rr; j <= rr; j++)
+                    for (k = -rr; k <= rr; k++)
+                        if (j * j + k * k <= rr * rr)
+                            fld_mark(FW - 1 - rr + j, cy + k, 70u + a / 2u - (uint32_t)(j * j + k * k) * 40u / (uint32_t)(rr * rr + 1));
+            }
+        } else {                             /* specks, some bright, the move streaking them */
+            flx = (int32_t)c / 4;
+            fly = -(int32_t)e / 6;
+            decay = 225u + c / 12u;
+            for (r = 0; r < (int32_t)(2u + a / 10u); r++) {
+                int32_t px = (int32_t)(fld_rand() % FW), py = (int32_t)(fld_rand() % FH);
+                fld_mark(px, py, b > 50u && r % 3 == 0 ? 255u : 140u);
+                if (b > 20u && r % 4 == 0)
+                    fld_mark(px + 1, py, 120u), fld_mark(px, py + 1, 120u);
+            }
+        }
+        fld_step(flx, fly, wob, decay);
+        fld_show(GND_A, inst == I_TEXTURE && sub == 0u ? mixc(PAL0, ACC3, a) : PAL0, ACC2, inst == I_DRONE ? 2 : 6);
+    }
+}
+/* ---- ENV and LFO pages: a smooth curve with a glow, drawn to a sixteenth of a pixel ---- */
+static void soft_plot(int32_t x, int32_t y16, uint32_t k, uint32_t cr, uint32_t cg, uint32_t cb)   /* a point at y16/16, split over two pixels */
+{
+    int32_t y = y16 >> 4, f = y16 & 15;
+    light_px(x, y, k * (uint32_t)(16 - f) / 16u, cr, cg, cb);
+    light_px(x, y + 1, k * (uint32_t)f / 16u, cr, cg, cb);
+}
+/* one column of a curve whose edge is at y16: the body fades down from the edge, the edge is bright and bloomed */
+static void curve_col(int32_t x, int32_t y16, int32_t base, uint32_t body, uint32_t br, uint32_t bg, uint32_t bb)
+{
+    int32_t y, top = (y16 + 15) >> 4;
+    for (y = top; y < base; y++) {
+        uint32_t depth = (uint32_t)(y - top), k = body * (uint32_t)(90 - (int32_t)(depth > 89u ? 89u : depth)) / 90u;
+        light_px(x, y, k, br, bg, bb);
+    }
+    soft_plot(x, y16, 255u, 9, 56, 26);                 /* the edge, two pixels thick, bloomed */
+    soft_plot(x, y16 + 16, 255u, 9, 56, 26);
+    soft_plot(x, y16 - 32, 110u, 5, 36, 20);
+    soft_plot(x, y16 - 64, 45u, 3, 20, 12);
+    soft_plot(x, y16 + 48, 60u, 5, 36, 20);
+}
+static void bell_ground(void)
+{
+    int32_t gy;
+    for (gy = 0; gy < 100; gy++)
+        ground_row(gy, (uint32_t)gy);
+}
+/* the four stages of an envelope over 232 columns: the curve, a grid, the stage dividers, a node at each corner, A D S R over each stage */
+static void env_pic(uint32_t a, uint32_t dc, uint32_t s, uint32_t r, uint32_t scale, uint32_t body)
+{
+    int32_t wa = 14 + (int32_t)a * 50 / 100, wd = 14 + (int32_t)dc * 50 / 100, ws = 34, wr = 14 + (int32_t)r * 50 / 100, x, q;
+    int32_t tot = wa + wd + ws + wr, hmax = 84 * (int32_t)scale / 100, sh = (int32_t)s * hmax / 100;
+    static const char *const L[4] = {"ATTACK", "DECAY", "SUSTAIN", "RELEASE"};
+    static const uint8_t ST_R[4] = {0, 0, 6, 14}, ST_G[4] = {52, 44, 34, 22}, ST_B[4] = {26, 30, 34, 40};   /* a body colour for each stage: teal to violet */
+    int32_t xs[5];
+    bell_ground();
+    xs[0] = 4;
+    xs[1] = 4 + wa * 232 / tot;
+    xs[2] = 4 + (wa + wd) * 232 / tot;
+    xs[3] = 4 + (wa + wd + ws) * 232 / tot;
+    xs[4] = 236;
+    for (q = 1; q < 4; q++)                                          /* a faint grid at a quarter, a half, three quarters */
+        cv_rect(4, 96 - 21 * q, 232, 1, PAL5);
+    cv_rect(4, 96, 232, 1, PAL0);                                    /* the floor */
+    for (x = 0; x < 232; x++) {
+        int32_t u = x * tot / 232, uf = x * tot * 16 / 232, y16, h16, st = u < wa ? 0 : u < wa + wd ? 1 : u < wa + wd + ws ? 2 : 3;
+        if (st == 0)
+            h16 = hmax * 16 * uf / (wa * 16);
+        else if (st == 1)
+            h16 = hmax * 16 - (hmax - sh) * 16 * (uf - wa * 16) / (wd * 16);
+        else if (st == 2)
+            h16 = sh * 16;
+        else
+            h16 = sh * 16 * (tot * 16 - uf) / (wr * 16);
+        if (h16 < 0)
+            h16 = 0;
+        y16 = (96 << 4) - h16;
+        curve_col(4 + x, y16, 96, body, ST_R[st], ST_G[st], ST_B[st]);
+    }
+    for (q = 1; q < 4; q++)                                          /* where one stage hands over to the next */
+        cv_rect(xs[q], 10, 1, 86, PAL3);
+    glow_at(xs[1], 96 - hmax, 8, ACC3, 230u);                        /* the corners: the top of the attack, the foot of the decay, the end of the hold */
+    glow_at(xs[2], 96 - sh, 8, ACC3, 200u);
+    glow_at(xs[3], 96 - sh, 8, ACC3, 200u);
+    for (q = 0; q < 4; q++) {
+        int32_t mid = (xs[q] + xs[q + 1]) / 2, w = text_w(&FONT_T, L[q]);
+        cv_text(clamp(mid - w / 2, 2, 238 - w), 2, &FONT_T, L[q], q == 2 ? ACC1 : ACC2);
+    }
+}
+/* one LFO: a few cycles of its shape (rate the number of cycles, depth the height), a faint centre line */
+static uint32_t lfo_hash(uint32_t i) { i = i * 2654435761u + 12345u; i ^= i >> 15; i *= 2246822519u; return (i >> 8) & 0xFFFFu; }
+static void lfo_pic(uint32_t rate, uint32_t depth, uint32_t shape)
+{
+    int32_t x, amp = 6 + (int32_t)depth * 40 / 100, cy = 50, prev16 = 0;
+    uint32_t cyc10 = 10u + rate * 60u / 100u;
+    bell_ground();
+    cv_rect(4, cy, 232, 1, PAL3);
+    for (x = 0; x < 232; x++) {
+        uint32_t ph = (uint32_t)x * cyc10 * 1024u / 2320u, t = ph % 1024u, i = ph / 1024u;
+        int32_t v, y16, a;
+        switch (shape) {
+        case 0: v = sin96(t * 96u / 1024u); break;
+        case 1: v = t < 512u ? -100 + (int32_t)t * 200 / 512 : 100 - ((int32_t)t - 512) * 200 / 512; break;
+        case 2: v = -100 + (int32_t)t * 200 / 1024; break;
+        case 3: v = t < 512u ? 100 : -100; break;
+        case 4: v = (int32_t)(lfo_hash(i) % 201u) - 100; break;
+        default: {                                                   /* drift: a smooth walk between random points */
+            int32_t v0 = (int32_t)(lfo_hash(i) % 201u) - 100, v1 = (int32_t)(lfo_hash(i + 1u) % 201u) - 100, f = (int32_t)t * 100 / 1024;
+            int32_t sm = f * f * (300 - 2 * f) / 10000;                  /* smoothstep, 0..100 */
+            v = v0 + (v1 - v0) * sm / 100;
+            break;
+        }
+        }
+        y16 = (cy << 4) - v * amp * 16 / 100;
+        if (x && (shape == 3u || shape == 4u) && (y16 > prev16 + 160 || y16 < prev16 - 160)) {   /* the vertical edge of a step */
+            int32_t lo = y16 < prev16 ? y16 : prev16, hi = y16 < prev16 ? prev16 : y16, yy;
+            for (yy = lo; yy <= hi; yy += 16)
+                soft_plot(4 + x, yy, 200u, 9, 56, 26);
+        }
+        prev16 = y16;
+        a = (y16 >> 4) < cy ? y16 >> 4 : cy;
+        for (; a < ((y16 >> 4) < cy ? cy : y16 >> 4); a++)            /* the fill between the line and the centre */
+            light_px(4 + x, a, 38u, 0, 28, 14);
+        soft_plot(4 + x, y16, 255u, 9, 56, 26);
+        soft_plot(4 + x, y16 - 32, 80u, 5, 36, 20);
+        soft_plot(4 + x, y16 + 32, 80u, 5, 36, 20);
+    }
+}
+static float amb_sqrt(float v)
+{
+    float g = v > 1.0f ? v * 0.5f : 1.0f;
+    int i;
+    for (i = 0; i < 6; i++)
+        g = 0.5f * (g + v / g);
+    return g;
+}
+/* the filter: a smooth two-pole response on a log frequency axis, the resonance a peak at the cutoff, a ghost where the envelope opens it */
+static void filter_pic(uint32_t cut, uint32_t res, uint32_t keyt, uint32_t amt)
+{
+    int32_t pass, x;
+    float q = 0.7f + (float)res * 0.032f;       /* up to about 3.9: a round peak, not a spike */
+    float fc0 = 20.0f + (float)cut * 1.9f + ((float)keyt - 50.0f) / 6.0f;
+    bell_ground();
+    for (x = 40; x < 232; x += 48)
+        cv_rect(4 + x, 4, 1, 92, GND_B);
+    for (pass = 1; pass >= 0; pass--) {
+        float fc = pass ? fc0 + (float)amt * (222.0f - fc0) / 200.0f : fc0;
+        for (x = 0; x < 232; x++) {
+            float u = ((float)x + 4.0f) / fc, d = 1.0f - u * u;
+            float m = 1.0f / amb_sqrt(d * d + u * u / (q * q));
+            int32_t y16, a, yb;
+            if (m > 1.5f) m = 1.5f + (m - 1.5f) * 0.35f;      /* a tall resonance is squeezed, not cut off at the top */
+            y16 = (int32_t)((88.0f - 16.0f * m) * 16.0f);
+            if (u > 1.0f) {                       /* the slope falls faster: pull it down a touch so it leaves the picture */
+                y16 += (int32_t)((u - 1.0f) * 220.0f);
+            }
+            if (y16 < 4 * 16) y16 = 4 * 16;
+            if (y16 > 96 * 16) y16 = 96 * 16;
+            if (pass) {
+                if ((x & 3) < 2) soft_plot(4 + x, y16, 150u, 4, 40, 28);
+                continue;
+            }
+            yb = y16 >> 4;
+            for (a = yb; a < 96; a++)
+                light_px(4 + x, a, 30u, 0, 26, 14);
+            soft_plot(4 + x, y16, 255u, 9, 56, 26);
+            soft_plot(4 + x, y16 - 32, 80u, 5, 36, 20);
+            soft_plot(4 + x, y16 + 32, 80u, 5, 36, 20);
+        }
+    }
+    glow_at(4 + (int32_t)fc0, 64, 8, ACC1, 90u);
+}
+/* a knob's small name over its big number: one that is too wide for its 56 px gets the long words short (AMOUNT, TRACK ...) */
+static void knob_label(int32_t xx, const char *nm)
+{
+    char t[24];
+    uint32_t i = 0, j;
+    static const char *const LONG[][2] = {{"AMOUNT", "AMT"}, {"TRACK", "TRK"}, {"FEEDBACK", "FDBK"}, {"RESONANCE", "RESO"}, {"DECAY", "DEC"}};
+    for (; nm[i] && i < 22u; i++)
+        t[i] = nm[i];
+    t[i] = 0;
+    for (j = 0; text_w(&FONT_T, t) > 50 && j < 5u; j++) {
+        uint32_t n = 0, m = 0, k;
+        while (LONG[j][0][n]) n++;
+        for (k = 0; t[k]; k++) {
+            for (m = 0; m < n && t[k + m] == LONG[j][0][m]; m++) {}
+            if (m == n) {
+                char u[24];
+                uint32_t q = 0, z;
+                for (z = 0; z < k; z++) u[q++] = t[z];
+                for (z = 0; LONG[j][1][z]; z++) u[q++] = LONG[j][1][z];
+                for (z = k + n; t[z]; z++) u[q++] = t[z];
+                u[q] = 0;
+                for (z = 0; z <= q; z++) t[z] = u[z];
+                break;
+            }
+        }
+    }
+    cv_text(xx, 102, &FONT_T, t, ACC2);
+}
 static void bell_draw(uint32_t pg, uint32_t sub)
 {
     const uint8_t *p = sc.tp[cur_trk];
@@ -71,27 +638,15 @@ static void bell_draw(uint32_t pg, uint32_t sub)
     char t[16];
     cv_rect(0, 0, 240, 100, PAL5);
     if (pg == PG_ENV && sub == 0u) {         /* AMP: the curve of the loudness */
-        env_curve(pt, p[TP_ATK], p[TP_DEC], p[TP_SUS], p[TP_REL], 88);
-        bell_graph(pt, 96, 88, PAL0, PAL4);
+        env_pic(p[TP_ATK], p[TP_DEC], p[TP_SUS], p[TP_REL], 100u, 200u);
     } else if (pg == PG_ENV) {               /* FILTER ENV: its own curve, as tall as the amount (set on EDIT 3) says */
-        env_curve(pt, p[TP_FATK], p[TP_FDEC], p[TP_FSUS], p[TP_FREL], 88);
-        for (x = 0; x < 232; x++)
-            pt[x] = (uint8_t)(pt[x] * (12 + (int32_t)p[TP_FENV] * 88 / 100) / 100);
-        bell_graph(pt, 96, 88, ACC1, PAL3);
-        cv_rect(4, 96 - 12 * 88 / 100, 232, 1, PAL0);        /* where the filter rests */
-    } else if (sub == 0u) {                  /* METAL: rings; ratio spaces them, index how many, decay how fast they fade, beat a second set */
-        uint32_t ratio = p[TP_P0], idx = p[TP_P1], dec = p[TP_P2], beat = p[TP_P3], n = 2u + idx * 7u / 100u, i, a;
-        for (i = 0; i < n; i++) {
-            int32_t r = 8 + (int32_t)i * (6 + (int32_t)ratio * 8 / 100);
-            uint32_t f = 100u - (i * (dec + 10u) / n > 100u ? 100u : i * (dec + 10u) / n);
-            if (r > 46)
-                break;
-            for (a = 0; a < 96u; a += 2u) {
-                bell_dot(cx - (int32_t)beat * 10 / 100, cy, r, a, mixc(PAL3, ACC3, f));
-                if (beat > 4u)
-                    bell_dot(cx + (int32_t)beat * 10 / 100, cy, r, a, mixc(PAL3, ACC1, f));
-            }
-        }
+        env_pic(p[TP_FATK], p[TP_FDEC], p[TP_FSUS], p[TP_FREL], 12u + p[TP_FENV] * 88u / 100u, 200u);
+    } else if (pg == PG_LFO) {               /* the LFO: its shape at its rate and depth */
+        lfo_pic(p[TP_L1RATE + 4u * sub], p[TP_L1DEP + 4u * sub], p[TP_L1SHP + 4u * sub]);
+    } else if (sub < 2u && p[TP_INST] != I_BELL) {
+        inst_pic(p, sub);
+    } else if (sub == 0u) {                  /* METAL: smooth rings and a glow, drawn pixel by pixel (see bell_metal) */
+        bell_metal(p);
     } else if (sub == 1u) {                  /* STRIKE: eight partials as bars: strike the height, partial how many sound, spread the gaps, tone the colour */
         uint32_t strike = p[TP_P4], part = p[TP_P5], spread = p[TP_P6], tone = p[TP_P7], i;
         int32_t gap = 8 + (int32_t)spread * 14 / 100;
@@ -103,23 +658,7 @@ static void bell_draw(uint32_t pg, uint32_t sub)
             cv_rect(bx, 96 - h, 10, h, c);
         }
     } else {                                 /* FILTER: the response: flat, a peak at the cutoff, then down; env amount a ghost where it opens to */
-        uint32_t cut = p[TP_CUT], res = p[TP_RES], keyt = p[TP_KEYT], amt = p[TP_FENV];
-        int32_t cxp = 20 + (int32_t)cut * 190 / 100 + ((int32_t)keyt - 50) / 6, ox = cxp + (int32_t)amt * (222 - cxp) / 100 / 2, pass;
-        for (pass = 0; pass < 2; pass++) {
-            int32_t c0 = pass ? ox : cxp;
-            for (x = 0; x < 232; x++) {
-                int32_t d = x - c0, v = 60, bump = (int32_t)res * 30 / 100;
-                if (d > 0)
-                    v = 60 - d * 2 / 2 * 60 / 90;
-                v += d > -12 && d < 12 ? bump * (12 - (d < 0 ? -d : d)) / 12 : 0;
-                pt[x] = (uint8_t)(v < 0 ? 0 : v > 90 ? 90 : v);
-            }
-            if (pass)
-                for (x = 0; x < 232; x += 3)
-                    cv_rect(4 + x, 96 - pt[x], 1, 1, ACC2);    /* the ghost: where the envelope opens it to */
-            else
-                bell_graph(pt, 96, 88, PAL0, PAL4);
-        }
+        filter_pic(p[TP_CUT], p[TP_RES], p[TP_KEYT], p[TP_FENV]);
     }
     /* the four values, big, under the picture: a small name and the number */
     for (k = 0; k < nk; k++) {
@@ -129,10 +668,50 @@ static void bell_draw(uint32_t pg, uint32_t sub)
             const char *nm = ref_name(ref);
             if (nm[0] == 'F' && nm[1] == 'I' && nm[2] == 'L' && nm[5] == 'R' && nm[6] == ' ')   /* "FILTER ATTACK": the page says FILTER */
                 nm += 7;
-            cv_text(xx, 102, &FONT_T, nm, ACC2);
+            knob_label(xx, nm);
         }
         ref_text(ref, t);
-        cv_text(xx, 114, &FONT_L, t, C_WHITE);
+        big_value(xx, t);
+    }
+}
+
+/* FX 4, DELAY SYNC: the echoes on a time line, the beats of the tempo as faint ticks; each echo is quieter by the feedback,
+ * the whole row by the mix, the tone sets how bright they are */
+static void fx_sync_draw(void)
+{
+    uint32_t fb = sc.gp[GP_DFB], tone = sc.gp[GP_DTONE], mx = sc.gp[GP_DMIX], k, amp, beat_px;
+    int32_t gy, x;
+    uint32_t dl_px = (uint32_t)(fx_delay_seconds() * 232.0f / 1.6f + 0.5f);   /* the line shows 1.6 seconds */
+    char t[16];
+    for (gy = 0; gy < 100; gy++)
+        ground_row(gy, (uint32_t)gy);
+    beat_px = (uint32_t)(60.0f * 232.0f / 1.6f / (float)sc.gp[GP_TEMPO] + 0.5f);
+    if (beat_px >= 6u)
+        for (x = 4; x < 236; x += (int32_t)beat_px)
+            cv_rect(x, 8, 1, 90, PAL3);                      /* the beats */
+    cv_rect(4, 98, 232, 1, PAL0);
+    amp = 40u + mx * 60u / 100u;                               /* the loudness of the first echo 40..100 */
+    for (k = 0; k < 12u; k++) {
+        int32_t xx = 4 + (int32_t)(k * dl_px), h;
+        if (xx > 236)
+            break;
+        h = (int32_t)(k ? amp : 100u) * 84 / 100;
+        {   /* each echo is the feedback of the one before */
+            uint32_t q;
+            for (q = 0; q < k; q++)
+                h = h * (int32_t)(fb * 92u / 100u + 4u) / 100;
+        }
+        if (h < 2)
+            break;
+        glow_at(xx + 1, 98 - h / 2, 9, ACC2, k ? 90u : 160u);
+        cv_rect(xx, 98 - h, 3, h, k ? mixc(PAL0, ACC3, tone) : C_WHITE);
+    }
+    for (k = 0; k < 4u; k++) {
+        uint32_t ref = page_ref(PG_FX, 3, k);
+        int32_t xx = 4 + (int32_t)k * 59;
+        knob_label(xx, ref_name(ref));
+        ref_text(ref, t);
+        big_value(xx, t);
     }
 }
 
@@ -144,6 +723,8 @@ static void draw(void)
     char t[32];
     uint32_t k, now = plat_ms(), pg = ui.page, sub = ui.sub[pg];
     /* the header: the track and the page, or a message */
+    if (ui.mid_only)                         /* an animation frame: only the middle changes */
+        goto middle;
     cv_begin(240, 36, C_BLACK);
     if (now < ui.msg_until) {
         int32_t x = cv_text(8, 8, &FONT_B, ui.msg[0], C_WHITE);
@@ -191,24 +772,37 @@ static void draw(void)
     cv_blit(0, 0);
     /* the middle: HOME shows the six tracks, every other page its four values; in scale mode the footer is short, so
      * the middle is taller */
+middle:
     cv_begin(240, 162, C_BLACK);
-    if (pg == PG_MIX) {                      /* six strips: level, activity, M and S; the track's mix below */
+    if (pg == PG_MIX) {                      /* five strips: level, activity, M and S; the track's mix below */
+        {
+            int32_t gy;
+            for (gy = 0; gy < 98; gy++)
+                ground_row(gy, (uint32_t)gy * 100u / 98u);
+        }
         for (k = 0; k < NTRK; k++) {
             int32_t x = 4 + (int32_t)k * 39, h = (int32_t)sc.tp[k][TP_LEVEL] * 56 / 100;
             uint32_t aud = track_audible(k), mu = sc.tp[k][TP_MUTE], so = sc.tp[k][TP_SOLO];
             char n[2] = {(char)('1' + k), 0};
             if (k == cur_trk)
-                cv_rect(x - 2, 0, 38, 98, C_LINE);
+                cv_rect(x - 2, 0, 38, 98, PAL3);
             cv_rect(x, 0, 34, 3, TCOL[k]);
             cv_text(x + 2, 4, &FONT_B, n, aud ? C_WHITE : C_DIM);
             cv_text(x + 14, 7, &FONT_T, INST_3[sc.tp[k][TP_INST]], aud ? C_GRAY : C_DIM);
-            cv_rect(x + 4, 24, 8, 56, C_DIM);
-            cv_rect(x + 4, 80 - h, 8, h, aud ? TCOL[k] : C_LINE);
-            cv_rect(x + 18, 74, 12, 6, trk_active[k] && aud ? TCOL[k] : C_LINE);   /* sounding */
-            cv_rect(x + 16, 26, 16, 14, mu ? C_AMB : C_BLACK);
-            cv_text(x + 20, 26, &FONT_XS, "M", mu ? C_BLACK : C_DIM);
-            cv_rect(x + 16, 44, 16, 14, so ? C_WHITE : C_BLACK);
-            cv_text(x + 21, 44, &FONT_XS, "S", so ? C_BLACK : C_DIM);
+            cv_rect(x + 4, 24, 8, 56, PAL5);
+            {
+                int32_t yy;
+                for (yy = 0; yy < h; yy++)       /* the level: a rise from teal to bright, the track's own when it sounds */
+                    cv_rect(x + 4, 79 - yy, 8, 1, aud ? mixc(PAL0, ACC3, (uint32_t)yy * 100u / 56u) : PAL3);
+            }
+            if (trk_active[k] && aud)
+                glow_at(x + 24, 76, 9, ACC3, 230u);
+            else
+                cv_rect(x + 21, 73, 6, 6, PAL3);                                   /* sounding */
+            cv_rect(x + 16, 26, 16, 14, mu ? PAL9 : PAL5);
+            cv_text(x + 20, 26, &FONT_XS, "M", mu ? C_WHITE : PAL0);
+            cv_rect(x + 16, 44, 16, 14, so ? ACC3 : PAL5);
+            cv_text(x + 21, 44, &FONT_XS, "S", so ? C_BLACK : PAL0);
             cv_text(x + 2, 83, &FONT_T, aud ? "ON" : (mu ? "MUTED" : "OFF"), aud ? C_HI : C_DIM);
         }
         for (k = 0; k < 4u; k++) {
@@ -236,35 +830,42 @@ static void draw(void)
             hn_sel = ui.hold_step;
         else
             hn_sel = (int32_t)ui.cursor % (int32_t)(hits ? hits : 1u);
-        for (k = 0; k < len; k++) {
-            uint32_t a = k * 96u / len;
-            int32_t x = cx + r * CS[(a + 72u) % 96u] / 100, y = cy - r * CS[a] / 100, h = eu_hit((k + len - rot % len) % len, hits, len);
-            if (k)
-                cv_line(px0, py0, x, y, C_LINE);
-            else
-                fx = x, fy = y;
-            px0 = x;
-            py0 = y;
-            if (h >= 0 && h == hn_sel)
-                sel = k;
-        }
-        cv_line(px0, py0, fx, fy, C_LINE);
-        if (playing) {                       /* the playhead's spoke */
-            uint32_t a = cur % len * 96u / len;
-            cv_line(cx, cy, cx + (r - 8) * CS[(a + 72u) % 96u] / 100, cy - (r - 8) * CS[a] / 100, C_DIM);
-        }
-        for (k = 0; k < len; k++) {
-            uint32_t a = k * 96u / len;
-            int32_t x = cx + r * CS[(a + 72u) % 96u] / 100, y = cy - r * CS[a] / 100, h = eu_hit((k + len - rot % len) % len, hits, len);
-            if (h < 0) {
-                cv_rect(x - 1, y - 1, 3, 3, C_DIM);
-            } else {
-                uint32_t on = sc.hn[cur_trk][h] != REST;
-                if (k == sel)
-                    cv_rect(x - 7, y - 7, 15, 15, C_HI);
-                cv_rect(x - 5, y - 5, 11, 11, k == cur && playing ? C_WHITE : on ? TCOL[cur_trk] : C_LINE);
-                if (sc.cd[cur_trk][h])         /* a condition: a dark pip */
-                    cv_rect(x - 1, y - 1, 3, 3, C_BLACK);
+        {   /* the ring in the new style: the ground, a soft band along the circle, glowing hits; the playing one white */
+            int32_t gx, gy;
+            d3_init();
+            for (gy = 0; gy < 122; gy++)
+                ground_row(gy, (uint32_t)gy * 100u / 122u);
+            for (gy = cy - r - 10; gy <= cy + r + 10; gy++)
+                for (gx = cx - r - 10; gx <= cx + r + 10; gx++) {
+                    int32_t ddx = gx - cx, ddy = gy - cy;
+                    uint32_t d2 = (uint32_t)(ddx * ddx + ddy * ddy), w;
+                    if (d2 > 4096u)
+                        continue;
+                    w = (uint32_t)d3_tab[d2] > (uint32_t)(3 * r) ? (uint32_t)d3_tab[d2] - 3u * (uint32_t)r : 3u * (uint32_t)r - d3_tab[d2];
+                    if (w < 15u)
+                        light_px(gx, gy, (15u - w) * 255u / 15u * 90u / 255u, 9u, 56u, 26u);
+                }
+            for (k = 0; k < len; k++) {
+                uint32_t a = k * 96u / len;
+                int32_t x = cx + r * CS[(a + 72u) % 96u] / 100, y = cy - r * CS[a] / 100, h = eu_hit((k + len - rot % len) % len, hits, len);
+                if (h >= 0 && h == hn_sel)
+                    sel = k;
+                if (h < 0) {
+                    cv_rect(x - 1, y - 1, 2, 2, PAL0);
+                    continue;
+                }
+                {
+                    uint32_t on = sc.hn[cur_trk][h] != REST, now_on = k == cur && playing;
+                    uint16_t c = now_on ? C_WHITE : on ? hit_colour((uint32_t)h, hits) : PAL3;
+                    if (on)
+                        glow_at(x, y, 11, c, now_on ? 255u : 150u);
+                    if (k == sel)
+                        for (a = 0; a < 96u; a += 3u)
+                            cv_rect(x + 8 * CS[(a + 72u) % 96u] / 100, y - 8 * CS[a] / 100, 1, 1, ACC3);
+                    disc_at(x, y, now_on ? 5 : 4, c);
+                    if (sc.cd[cur_trk][h])         /* a condition: a dark pip */
+                        cv_rect(x - 1, y - 1, 2, 2, PAL6);
+                }
             }
         }
         {
@@ -273,10 +874,28 @@ static void draw(void)
             text_cat(t, "/");
             { char c[4]; int_text((int32_t)len, c); text_cat(t, c); }
             cv_text(126, 8, &FONT_B, t, C_WHITE);
-            cv_text(126, 26, &FONT_XS, "HITS", C_GRAY);
-            int_text((int32_t)rot, t);
-            cv_text(126, 46, &FONT_B, t, C_WHITE);
-            cv_text(126, 64, &FONT_XS, "ROTATE", C_GRAY);
+            {   /* DRIFT moves the hits and rotation in play away from the knobs: show what the knobs are set to */
+                uint32_t sh = p[TP_EHITS] > len ? len : p[TP_EHITS], sr = p[TP_EROT] % len;
+                char u[16], n[8];
+                u[0] = 0;
+                text_cat(u, "HITS");
+                if (hits != sh) {
+                    text_cat(u, " SET ");
+                    int_text((int32_t)sh, n);
+                    text_cat(u, n);
+                }
+                cv_text(126, 26, &FONT_XS, u, hits != sh ? C_HI : C_GRAY);
+                int_text((int32_t)rot, t);
+                cv_text(126, 46, &FONT_B, t, C_WHITE);
+                u[0] = 0;
+                text_cat(u, "ROTATE");
+                if (rot != sr) {
+                    text_cat(u, " SET ");
+                    int_text((int32_t)sr, n);
+                    text_cat(u, n);
+                }
+                cv_text(126, 64, &FONT_XS, u, rot != sr ? C_HI : C_GRAY);
+            }
             if (h >= 0) {
                 uint32_t d = sc.hn[cur_trk][h];
                 cv_text(126, 84, &FONT_B, d == REST ? "-" : NOTE_NAME[(uint32_t)degree_note((int32_t)d, 0) % 12u], C_HI);
@@ -299,11 +918,16 @@ static void draw(void)
         uint32_t mode = p[TP_SMODE], len = mode == 1u ? p[TP_ELEN] : mode == 2u ? p[TP_SLEN] : p[TP_STEPS];
         int32_t oct = INST_OCT[p[TP_INST]] + (int32_t)p[TP_OCT] - 3;
         uint32_t cur = mode ? seq_cur[cur_trk] : (mo[cur_trk].pos + len - 1u) % len;
+        {   /* the new style: an indigo ground, active cells glow, the one playing is white */
+            int32_t gy;
+            for (gy = 0; gy < 100; gy++)
+                ground_row(gy, (uint32_t)gy);
+        }
         for (k = 0; k < 16u; k++) {
             int32_t x = 8 + (int32_t)k * 14, deg = -1, h = -1, act = 0, hh;
             uint16_t c;
             if (k >= len) {
-                cv_rect(x + 4, 14, 4, 4, C_LINE);
+                cv_rect(x + 5, 15, 2, 2, PAL3);
                 continue;
             }
             if (mode == 1u) {
@@ -319,7 +943,9 @@ static void draw(void)
                 deg = mo[cur_trk].deg[k] == -100 ? -1 : mo[cur_trk].deg[k];
                 act = deg >= 0;
             }
-            c = act ? TCOL[cur_trk] : (mode == 1u && h >= 0) ? C_DIM : C_LINE;
+            c = act ? ACC2 : (mode == 1u && h >= 0) ? PAL0 : PAL5;
+            if (act && deg >= 0)
+                glow_at(x + 6, 16, 12, ACC2, k == cur && playing ? 230u : 110u);
             cv_rect(x, 6, 12, 20, c);
             if (k == cur && playing)                       /* the step playing */
                 cv_rect(x, 0, 12, 4, C_WHITE);
@@ -334,7 +960,7 @@ static void draw(void)
             }
             if (deg >= 0) {
                 hh = (deg + 1) * 3;
-                cv_rect(x + 3, 94 - hh, 6, hh, act ? TCOL[cur_trk] : C_LINE);
+                cv_rect(x + 3, 94 - hh, 6, hh, act ? ACC3 : PAL3);
             }
         }
         for (k = 0; k < 4u; k++) {
@@ -388,6 +1014,8 @@ static void draw(void)
             cv_text(8, 141, &FONT_S, t, C_GRAY);
             tag_drawn = APP_TAGLINE[0] == 'v';
         }
+    } else if (pg == PG_FX && sub == 3u) {
+        fx_sync_draw();
     } else if (bell_page(pg)) {              /* the bell: one picture per page, drawn from the four values, big numbers under it */
         bell_draw(pg, sub);
     } else if (pg == PG_SAV && sub == 0u) {  /* the projects: four factory (locked), six of yours; K1 moves */
@@ -421,24 +1049,29 @@ static void draw(void)
         cv_text(8, 60, &FONT_XS, "K1 PLACE   K2 LETTER", C_DIM);
         cv_text(8, 76, &FONT_XS, "OK SAVES THE NAME", C_DIM);
     } else if (pg == PG_HOME && sub == 0u) {
+        {
+            int32_t gy;
+            for (gy = 0; gy < 100; gy++)
+                ground_row(gy, (uint32_t)gy);
+        }
         for (k = 0; k < NTRK; k++) {
-            int32_t y = (int32_t)k * 16;
-            uint32_t w = sc.tp[k][TP_LEVEL];
-            uint16_t c = track_audible(k) ? C_HI : C_DIM;
+            int32_t y = (int32_t)k * 20 + 1, xx;
+            uint32_t w = sc.tp[k][TP_LEVEL] * 100u / 100u, aud = track_audible(k);
             char n[2] = {(char)('1' + k), 0};
             if (k == cur_trk)
-                cv_rect(0, y, 240, 15, C_LINE);
-            cv_rect(4, y + 2, 3, 11, TCOL[k]);
-            cv_text(12, y, &FONT_XS, n, C_WHITE);
-            cv_text(24, y, &FONT_XS, INST_NAME[sc.tp[k][TP_INST]], k == cur_trk ? C_WHITE : C_GRAY);
-            cv_rect(100, y + 6, 100, 3, C_DIM);
-            cv_rect(100, y + 6, (int32_t)w, 3, c);
+                cv_rect(0, y - 1, 240, 19, PAL3);
+            cv_rect(4, y + 2, 3, 13, TCOL[k]);
+            cv_text(12, y, &FONT_S, n, aud ? C_WHITE : PAL0);
+            cv_text(26, y, &FONT_S, INST_NAME[sc.tp[k][TP_INST]], aud ? (k == cur_trk ? C_WHITE : C_GRAY) : PAL0);
+            cv_rect(100, y + 6, 100, 5, PAL5);
+            for (xx = 0; xx < (int32_t)w; xx++)   /* the level: teal rising to bright */
+                cv_rect(100 + xx, y + 6, 1, 5, aud ? mixc(PAL0, ACC3, (uint32_t)xx) : PAL3);
             if (sc.tp[k][TP_MUTE])
-                cv_text(206, y, &FONT_XS, "M", C_AMB);
+                cv_text(206, y, &FONT_S, "M", ACC2);
             if (sc.tp[k][TP_SOLO])
-                cv_text(218, y, &FONT_XS, "S", C_WHITE);
-            if (trk_active[k])
-                cv_rect(230, y + 5, 5, 5, TCOL[k]);
+                cv_text(218, y, &FONT_S, "S", C_WHITE);
+            if (trk_active[k] && aud)
+                glow_at(236, y + 8, 6, ACC3, 230u);
         }
         for (k = 0; k < 4u; k++) {
             uint32_t ref = PG_REF[PG_HOME][0][k];
@@ -464,35 +1097,37 @@ static void draw(void)
         }
     }
     cv_blit(0, 40);
+    if (ui.mid_only)
+        return;
     /* the footer: in scale mode the black keys' map (each key's label over its place on the keyboard), else the
      * six tracks, the key and scale, the modes, the load */
-    if (scale_mode) {                        /* the 11 black keys alone, in their groups (3 2 3 2 1): a label row, the keys */
-        static const uint8_t GRP[11] = {0, 0, 0, 1, 1, 2, 2, 2, 3, 3, 4};
+    if (scale_mode) {                        /* the six keys that choose (the tracks are in the header): big labels, a bar each, MIX last */
         cv_begin(240, 34, C_BLACK);
-        for (k = 0; k < 11u; k++) {
+        for (k = 5; k < 11u; k++) {
             uint32_t arg, lit, a;
             const char *lbl;
-            char l4[5];
-            int32_t cx = 12 + (int32_t)k * 19 + (int32_t)GRP[k] * 7, x, lw, i;
+            char l5[6];
+            int32_t cx = 20 + (int32_t)(k - 5u) * 40, i, lw;
             uint16_t bright, dim;
             a = slot(k, &arg, &lbl, &lit);
-            switch (a) {                      /* the colours say what a key is: pages, track, a choice, MIX */
+            switch (a) {                      /* the colours say what a key is: a choice, MIX */
             case S_NONE: bright = dim = C_LINE; break;
-            case S_TRK: case S_MTRK: bright = TCOL[arg]; dim = (uint16_t)((TCOL[arg] >> 1) & 0x7BEFu); break;
             case S_MIX: bright = C_WHITE; dim = C_GRAY; break;
-            default: bright = ACC2; dim = PAL0; break;
+            default:                          /* the keys sit in groups of 3, 2 and 1: teal, violet, white */
+                if (k < 8u) { bright = ACC2; dim = PAL0; }
+                else { bright = RGB(176, 96, 200); dim = PAL8; }
+                break;
             }
-            cv_rect(cx - 8, 20, 16, 12, lit ? bright : dim);
+            cv_rect(cx - 15, 23, 30, 9, lit ? bright : dim);
             if (a == S_NONE)
                 continue;
-            for (i = 0; i < 4 && lbl[i]; i++)
-                l4[i] = lbl[i];
-            l4[i] = 0;
-            while (i > 1 && text_w(&FONT_T, l4) > 18)   /* keys are 19 px apart: a label that is wider loses a letter */
-                l4[--i] = 0;
-            lw = text_w(&FONT_T, l4);
-            x = clamp(cx - lw / 2, 0, 240 - lw);
-            cv_text(x, 3, &FONT_T, l4, lit ? bright : dim);
+            for (i = 0; i < 5 && lbl[i]; i++)
+                l5[i] = lbl[i];
+            l5[i] = 0;
+            while (i > 1 && text_w(&FONT_S, l5) > 38)
+                l5[--i] = 0;
+            lw = text_w(&FONT_S, l5);
+            cv_text(cx - lw / 2, 3, &FONT_S, l5, lit ? C_WHITE : a == S_MIX ? C_GRAY : k < 8u ? ACC2 : RGB(176, 96, 200));
         }
         cv_blit(0, 206);
         return;
