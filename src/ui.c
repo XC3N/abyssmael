@@ -162,6 +162,8 @@ static void ref_text(uint32_t ref, char *t)
     const pdesc_t *d = ref_desc(ref);
     uint32_t v = *ref_ptr(ref);
     t[0] = 0;
+    if (ref == TP_EROT)                      /* ROTATE only counts up to the steps: 15 on 12 steps is 3 */
+        v %= sc.tp[cur_trk][TP_ELEN];
     switch (d->kind) {
     case K_ENUM: text_cat(t, d->names[v]); break;
     case K_OCT: int_text((int32_t)v - 3, t); break;
@@ -180,9 +182,18 @@ static void ref_text(uint32_t ref, char *t)
     default: int_text((int32_t)v, t); break;
     }
 }
+static uint32_t seq_count(uint32_t t);
 static uint32_t ref_frac(uint32_t ref)   /* 0..200: the bar */
 {
     const pdesc_t *d = ref_desc(ref);
+    if (ref == 0x62u) {                      /* the cursor: full on the last step or hit */
+        uint32_t n = seq_count(cur_trk);
+        return n > 1u ? (ui.cursor < n ? ui.cursor : n - 1u) * 200u / (n - 1u) : 0u;
+    }
+    if (ref == TP_EROT) {
+        uint32_t n = sc.tp[cur_trk][TP_ELEN];
+        return n > 1u ? sc.tp[cur_trk][TP_EROT] % n * 200u / (n - 1u) : 0u;
+    }
     return d->hi > d->lo ? (uint32_t)(*ref_ptr(ref) - d->lo) * 200u / (uint32_t)(d->hi - d->lo) : 0u;
 }
 
@@ -192,6 +203,10 @@ static void ref_turn(uint32_t ref, int32_t e)
     uint8_t *p = ref_ptr(ref);
     int32_t v = clamp((int32_t)*p + e * (int32_t)d->step, d->lo, d->hi);
     char t[16];
+    if (ref == TP_EROT) {                    /* ROTATE runs 0 to steps - 1, from where it shows */
+        int32_t n = (int32_t)sc.tp[cur_trk][TP_ELEN];
+        v = clamp((int32_t)(*p % (uint32_t)n) + e, 0, n - 1);
+    }
     if (d->kind == K_SLEEP) {                /* OFF, then 5 to 120 minutes in fives (GP_SLEEP 1, 5, 9 ... 97) */
         int32_t m = clamp((int32_t)sleep_minutes(*p) + e * 5, 0, 120);
         v = m ? (m / 5 - 1) * 4 + 1 : 0;
@@ -776,8 +791,8 @@ static void input(void)
                 continue;
             }
             if (k == 0u && ui.page == PG_SEQ && ui.sub[PG_SEQ] == 2u && sc.tp[cur_trk][TP_SMODE]) {   /* K1: the cursor */
-                int32_t cnt = (int32_t)seq_count(cur_trk), c = ((int32_t)ui.cursor + e) % cnt;
-                ui.cursor = (uint8_t)(c < 0 ? c + cnt : c);
+                int32_t cnt = (int32_t)seq_count(cur_trk), c = clamp((int32_t)ui.cursor + e, 0, cnt - 1);   /* stops at the first and last */
+                ui.cursor = (uint8_t)c;
                 ui.redraw = 1;
                 continue;
             }

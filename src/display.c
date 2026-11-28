@@ -18,6 +18,17 @@ static const int8_t SIN96[96] = {100,100,99,98,97,95,92,90,87,83,79,75,71,66,61,
     -26,-32,-38,-44,-50,-56,-61,-66,-71,-75,-79,-83,-87,-90,-92,-95,-97,-98,-99,-100,-100,-100,-99,-98,-97,-95,
     -92,-90,-87,-83,-79,-75,-71,-66,-61,-56,-50,-44,-38,-32,-26,-20,-13,-7,0,7,13,20,26,32,38,44,50,56,61,66,
     71,75,79,83,87,90,92,95,97,98,99,100};   /* (cos of step i/96 of a turn: sin is the same table a quarter turn on) */
+/* EUCL ring: hit h of n runs plum, teal, bright teal, so the hits can be told apart while the pattern rotates */
+static uint16_t hit_colour(uint32_t h, uint32_t n)
+{
+    static const uint8_t G[3][3] = {{77, 25, 77}, {19, 111, 99}, {76, 224, 210}};
+    uint32_t pos = n > 1u ? h * 200u / (n - 1u) : 0u;   /* 0..200 */
+    uint32_t i = pos >= 100u ? 1u : 0u, f = pos - i * 100u, c[3], j;
+    for (j = 0; j < 3u; j++)
+        c[j] = ((uint32_t)G[i][j] * (100u - f) + (uint32_t)G[i + 1u][j] * f) / 100u;
+    return RGB(c[0], c[1], c[2]);
+}
+
 static uint32_t bell_page(uint32_t pg)
 {
     return (pg == PG_EDIT || pg == PG_ENV) && sc.tp[cur_trk][TP_INST] == I_BELL;
@@ -326,7 +337,7 @@ static void draw(void)
                 uint32_t on = sc.hn[cur_trk][h] != REST;
                 if (k == sel)
                     cv_rect(x - 7, y - 7, 15, 15, C_HI);
-                cv_rect(x - 5, y - 5, 11, 11, k == cur && playing ? C_WHITE : on ? TCOL[cur_trk] : C_LINE);
+                cv_rect(x - 5, y - 5, 11, 11, k == cur && playing ? C_WHITE : on ? hit_colour((uint32_t)h, hits) : C_LINE);
                 if (sc.cd[cur_trk][h])         /* a condition: a dark pip */
                     cv_rect(x - 1, y - 1, 3, 3, C_BLACK);
             }
@@ -337,10 +348,28 @@ static void draw(void)
             text_cat(t, "/");
             { char c[4]; int_text((int32_t)len, c); text_cat(t, c); }
             cv_text(126, 8, &FONT_B, t, C_WHITE);
-            cv_text(126, 26, &FONT_XS, "HITS", C_GRAY);
-            int_text((int32_t)rot, t);
-            cv_text(126, 46, &FONT_B, t, C_WHITE);
-            cv_text(126, 64, &FONT_XS, "ROTATE", C_GRAY);
+            {   /* DRIFT moves the hits and rotation in play away from the knobs: show what the knobs are set to */
+                uint32_t sh = p[TP_EHITS] > len ? len : p[TP_EHITS], sr = p[TP_EROT] % len;
+                char u[16], n[8];
+                u[0] = 0;
+                text_cat(u, "HITS");
+                if (hits != sh) {
+                    text_cat(u, " SET ");
+                    int_text((int32_t)sh, n);
+                    text_cat(u, n);
+                }
+                cv_text(126, 26, &FONT_XS, u, hits != sh ? C_HI : C_GRAY);
+                int_text((int32_t)rot, t);
+                cv_text(126, 46, &FONT_B, t, C_WHITE);
+                u[0] = 0;
+                text_cat(u, "ROTATE");
+                if (rot != sr) {
+                    text_cat(u, " SET ");
+                    int_text((int32_t)sr, n);
+                    text_cat(u, n);
+                }
+                cv_text(126, 64, &FONT_XS, u, rot != sr ? C_HI : C_GRAY);
+            }
             if (h >= 0) {
                 uint32_t d = sc.hn[cur_trk][h];
                 cv_text(126, 84, &FONT_B, d == REST ? "-" : NOTE_NAME[(uint32_t)degree_note((int32_t)d, 0) % 12u], C_HI);
