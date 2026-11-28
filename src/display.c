@@ -306,23 +306,35 @@ static void draw(void)
     /* the middle: HOME shows the six tracks, every other page its four values; in scale mode the footer is short, so
      * the middle is taller */
     cv_begin(240, 162, C_BLACK);
-    if (pg == PG_MIX) {                      /* six strips: level, activity, M and S; the track's mix below */
+    if (pg == PG_MIX) {                      /* five strips: level, activity, M and S; the track's mix below */
+        {
+            int32_t gy;
+            for (gy = 0; gy < 98; gy++)
+                cv_rect(0, gy, 240, 1, mixc(PAL6, PAL4, (uint32_t)gy * 100u / 98u));
+        }
         for (k = 0; k < NTRK; k++) {
             int32_t x = 4 + (int32_t)k * 39, h = (int32_t)sc.tp[k][TP_LEVEL] * 56 / 100;
             uint32_t aud = track_audible(k), mu = sc.tp[k][TP_MUTE], so = sc.tp[k][TP_SOLO];
             char n[2] = {(char)('1' + k), 0};
             if (k == cur_trk)
-                cv_rect(x - 2, 0, 38, 98, C_LINE);
+                cv_rect(x - 2, 0, 38, 98, PAL3);
             cv_rect(x, 0, 34, 3, TCOL[k]);
             cv_text(x + 2, 4, &FONT_B, n, aud ? C_WHITE : C_DIM);
             cv_text(x + 14, 7, &FONT_T, INST_3[sc.tp[k][TP_INST]], aud ? C_GRAY : C_DIM);
-            cv_rect(x + 4, 24, 8, 56, C_DIM);
-            cv_rect(x + 4, 80 - h, 8, h, aud ? TCOL[k] : C_LINE);
-            cv_rect(x + 18, 74, 12, 6, trk_active[k] && aud ? TCOL[k] : C_LINE);   /* sounding */
-            cv_rect(x + 16, 26, 16, 14, mu ? C_AMB : C_BLACK);
-            cv_text(x + 20, 26, &FONT_XS, "M", mu ? C_BLACK : C_DIM);
-            cv_rect(x + 16, 44, 16, 14, so ? C_WHITE : C_BLACK);
-            cv_text(x + 21, 44, &FONT_XS, "S", so ? C_BLACK : C_DIM);
+            cv_rect(x + 4, 24, 8, 56, PAL5);
+            {
+                int32_t yy;
+                for (yy = 0; yy < h; yy++)       /* the level: a rise from teal to bright, the track's own when it sounds */
+                    cv_rect(x + 4, 79 - yy, 8, 1, aud ? mixc(PAL0, ACC3, (uint32_t)yy * 100u / 56u) : PAL3);
+            }
+            if (trk_active[k] && aud)
+                glow_at(x + 24, 76, 9, ACC3, 230u);
+            else
+                cv_rect(x + 21, 73, 6, 6, PAL3);                                   /* sounding */
+            cv_rect(x + 16, 26, 16, 14, mu ? PAL9 : PAL5);
+            cv_text(x + 20, 26, &FONT_XS, "M", mu ? C_WHITE : PAL0);
+            cv_rect(x + 16, 44, 16, 14, so ? ACC3 : PAL5);
+            cv_text(x + 21, 44, &FONT_XS, "S", so ? C_BLACK : PAL0);
             cv_text(x + 2, 83, &FONT_T, aud ? "ON" : (mu ? "MUTED" : "OFF"), aud ? C_HI : C_DIM);
         }
         for (k = 0; k < 4u; k++) {
@@ -438,11 +450,16 @@ static void draw(void)
         uint32_t mode = p[TP_SMODE], len = mode == 1u ? p[TP_ELEN] : mode == 2u ? p[TP_SLEN] : p[TP_STEPS];
         int32_t oct = INST_OCT[p[TP_INST]] + (int32_t)p[TP_OCT] - 3;
         uint32_t cur = mode ? seq_cur[cur_trk] : (mo[cur_trk].pos + len - 1u) % len;
+        {   /* the new style: an indigo ground, active cells glow, the one playing is white */
+            int32_t gy;
+            for (gy = 0; gy < 100; gy++)
+                cv_rect(0, gy, 240, 1, mixc(PAL6, PAL4, (uint32_t)gy));
+        }
         for (k = 0; k < 16u; k++) {
             int32_t x = 8 + (int32_t)k * 14, deg = -1, h = -1, act = 0, hh;
             uint16_t c;
             if (k >= len) {
-                cv_rect(x + 4, 14, 4, 4, C_LINE);
+                cv_rect(x + 5, 15, 2, 2, PAL3);
                 continue;
             }
             if (mode == 1u) {
@@ -458,7 +475,9 @@ static void draw(void)
                 deg = mo[cur_trk].deg[k] == -100 ? -1 : mo[cur_trk].deg[k];
                 act = deg >= 0;
             }
-            c = act ? TCOL[cur_trk] : (mode == 1u && h >= 0) ? C_DIM : C_LINE;
+            c = act ? ACC2 : (mode == 1u && h >= 0) ? PAL0 : PAL5;
+            if (act && deg >= 0)
+                glow_at(x + 6, 16, 12, ACC2, k == cur && playing ? 230u : 110u);
             cv_rect(x, 6, 12, 20, c);
             if (k == cur && playing)                       /* the step playing */
                 cv_rect(x, 0, 12, 4, C_WHITE);
@@ -473,7 +492,7 @@ static void draw(void)
             }
             if (deg >= 0) {
                 hh = (deg + 1) * 3;
-                cv_rect(x + 3, 94 - hh, 6, hh, act ? TCOL[cur_trk] : C_LINE);
+                cv_rect(x + 3, 94 - hh, 6, hh, act ? ACC3 : PAL3);
             }
         }
         for (k = 0; k < 4u; k++) {
@@ -560,24 +579,29 @@ static void draw(void)
         cv_text(8, 60, &FONT_XS, "K1 PLACE   K2 LETTER", C_DIM);
         cv_text(8, 76, &FONT_XS, "OK SAVES THE NAME", C_DIM);
     } else if (pg == PG_HOME && sub == 0u) {
+        {
+            int32_t gy;
+            for (gy = 0; gy < 100; gy++)
+                cv_rect(0, gy, 240, 1, mixc(PAL6, PAL4, (uint32_t)gy));
+        }
         for (k = 0; k < NTRK; k++) {
-            int32_t y = (int32_t)k * 16;
-            uint32_t w = sc.tp[k][TP_LEVEL];
-            uint16_t c = track_audible(k) ? C_HI : C_DIM;
+            int32_t y = (int32_t)k * 20 + 1, xx;
+            uint32_t w = sc.tp[k][TP_LEVEL] * 100u / 100u, aud = track_audible(k);
             char n[2] = {(char)('1' + k), 0};
             if (k == cur_trk)
-                cv_rect(0, y, 240, 15, C_LINE);
-            cv_rect(4, y + 2, 3, 11, TCOL[k]);
-            cv_text(12, y, &FONT_XS, n, C_WHITE);
-            cv_text(24, y, &FONT_XS, INST_NAME[sc.tp[k][TP_INST]], k == cur_trk ? C_WHITE : C_GRAY);
-            cv_rect(100, y + 6, 100, 3, C_DIM);
-            cv_rect(100, y + 6, (int32_t)w, 3, c);
+                cv_rect(0, y - 1, 240, 19, PAL3);
+            cv_rect(4, y + 2, 3, 13, TCOL[k]);
+            cv_text(12, y, &FONT_S, n, aud ? C_WHITE : PAL0);
+            cv_text(26, y, &FONT_S, INST_NAME[sc.tp[k][TP_INST]], aud ? (k == cur_trk ? C_WHITE : C_GRAY) : PAL0);
+            cv_rect(100, y + 6, 100, 5, PAL5);
+            for (xx = 0; xx < (int32_t)w; xx++)   /* the level: teal rising to bright */
+                cv_rect(100 + xx, y + 6, 1, 5, aud ? mixc(PAL0, ACC3, (uint32_t)xx) : PAL3);
             if (sc.tp[k][TP_MUTE])
-                cv_text(206, y, &FONT_XS, "M", C_AMB);
+                cv_text(206, y, &FONT_S, "M", ACC2);
             if (sc.tp[k][TP_SOLO])
-                cv_text(218, y, &FONT_XS, "S", C_WHITE);
-            if (trk_active[k])
-                cv_rect(230, y + 5, 5, 5, TCOL[k]);
+                cv_text(218, y, &FONT_S, "S", C_WHITE);
+            if (trk_active[k] && aud)
+                glow_at(236, y + 8, 6, ACC3, 230u);
         }
         for (k = 0; k < 4u; k++) {
             uint32_t ref = PG_REF[PG_HOME][0][k];
