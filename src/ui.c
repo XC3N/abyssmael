@@ -852,8 +852,7 @@ static void input(void)
     {   /* the lights: the page's button, PLAY, SEL, REC, SAVE; in scale mode the black keys show the track, page,
          * mute and solo, and the white keys glow */
         uint32_t lb = btn | (PG_BTN[ui.page] < NB ? 1u << PG_BTN[ui.page] : 0u), lk = keys, dk = 0, latched = 0;
-        if (playing)
-            lb |= 1u << B_PLAY;
+        lb |= playing ? LED_PLAY_GREEN : 1u << B_PLAY;     /* PLAY: green while playing, red when stopped */
         if (scale_mode)
             lb |= 1u << B_SEL;
         if (latch)
