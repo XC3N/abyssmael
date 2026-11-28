@@ -277,7 +277,7 @@ static int32_t scale_key_note(uint32_t wi)
  * HOME: PLAY, LATCH. MIX: the five track keys mute or solo (MUTE and SOLO say which), clear the mutes, clear the solos.
  * SAV: LOAD, NEW, SAVE, DEL, NAME (page 1); OK, <, >, SPACE, LIST (page 2). A button's pages are the button again. */
 enum { S_NONE, S_TRK, S_INST, S_ENV, S_LFO, S_SEQ, S_ARP, S_SEND,
-       S_PLAY, S_LATCH, S_MMODE, S_MTRK, S_MCLR, S_SCLR, S_MIX,
+       S_PLAY, S_LATCH, S_RECL, S_RECS, S_MMODE, S_MTRK, S_MCLR, S_SCLR, S_MIX,
        S_SMODE, S_RAND, S_REST,
        S_DSYNC, S_PLOAD, S_PNEW, S_PSAVE, S_PDEL, S_PNAME, S_NOK, S_NPREV, S_NNEXT, S_NSPC, S_NLIST };
 static const char *const TRK_LBL[NTRK] = {"BEL", "PLK", "PAD", "DRN", "TEX"};
@@ -316,7 +316,11 @@ static uint32_t slot(uint32_t bi, uint32_t *arg, const char **lbl, uint32_t *lit
         return S_TRK;
     }
     if (pg == PG_HOME)
+    {
+        if (c == 2u) { *lbl = "LIVE"; *lit = rec_mode == 1u; return S_RECL; }
+        if (c == 3u) { *lbl = "STEP"; *lit = rec_mode == 2u; return S_RECS; }
         return c < 2u ? (*lbl = c ? "LTC" : "PLY", *lit = c ? latch : playing, c ? S_LATCH : S_PLAY) : S_NONE;
+    }
     if (pg == PG_MIX) {
         static const char *const ML[5] = {"SEL", "MUTE", "SOLO", "CLRM", "CLRS"};
         static const uint8_t MA[5] = {S_MMODE, S_MMODE, S_MMODE, S_MCLR, S_SCLR};
@@ -449,6 +453,26 @@ static void play_toggle(void)
                 vc[i].stage = 4;
     app_say(playing ? "PLAYING" : "STOPPED", "");
 }
+/* REC: note entry. LIVE: seq.c writes what is played; STEP: the white keys write at the cursor on SEQ 3. Same mode again = off */
+static void rec_set(uint32_t m)
+{
+    if (rec_mode == m) {
+        rec_mode = 0;
+        app_say("REC", "OFF");
+        return;
+    }
+    if (sc.tp[cur_trk][TP_SMODE] == 0u) {
+        app_say("SWITCH TRACK TO", "EUCL OR STEP");
+        return;
+    }
+    rec_mode = (uint8_t)m;
+    if (m == 2u) {
+        page_open(PG_SEQ, 2);
+        app_say("REC STEP", "KEYS WRITE");
+    } else {
+        app_say("REC LIVE", playing ? "PLAY KEYS" : "PRESS PLAY");
+    }
+}
 static void latch_toggle(void)
 {
     uint32_t i;
@@ -502,7 +526,7 @@ static void note_enter(uint32_t wi)
         sc.son[cur_trk] |= (uint16_t)(1u << ui.cursor);
     }
     sc_dirty = 1;
-    if (ui.adv)                              /* the setting: move on after a write */
+    if (ui.adv || rec_mode)                  /* the setting (always while REC is armed): move on after a write */
         ui.cursor = (uint8_t)((ui.cursor + 1u) % seq_count(cur_trk));
 }
 
@@ -657,6 +681,8 @@ static void black_key(uint32_t bi, int down)
     case S_NLIST: page_open(PG_SAV, 0); break;
     case S_PLAY: play_toggle(); break;
     case S_LATCH: latch_toggle(); break;
+    case S_RECL: rec_set(1u); break;
+    case S_RECS: rec_set(2u); break;
     case S_MMODE: ui.mix_mode = (uint8_t)arg; app_say("TRACK KEYS", arg == 2u ? "SELECT" : arg ? "SOLO" : "MUTE"); break;
     case S_MTRK:
         if (ui.mix_mode == 2u) {             /* SEL: the key picks the track */
@@ -761,7 +787,7 @@ static void input(void)
             play_toggle();
             break;
         case B_REC:
-            latch_toggle();
+            if (rec_mode) { rec_mode = 0; app_say("REC", "OFF"); } else rec_set(1u);
             break;
         case B_OCTDN:
         case B_OCTUP: {
@@ -855,7 +881,7 @@ static void input(void)
         lb |= playing ? LED_PLAY_GREEN : 1u << B_PLAY;     /* PLAY: green while playing, red when stopped */
         if (scale_mode)
             lb |= 1u << B_SEL;
-        if (latch)
+        if (latch || rec_mode)
             lb |= 1u << B_REC;
         if (sc_dirty)
             lb |= 1u << B_SAVE;
@@ -872,6 +898,7 @@ static void input(void)
         for (k = 0; k < NKEYS; k++)
             latched |= (uint32_t)ui.latched[k] << k;
         lk |= latched;
+        if (rec_dirty) { sc_dirty = 1; rec_dirty = 0; }
         if (scale_mode) {
             uint32_t len = SCALE_LEN[sc.gp[GP_SCALE]];
             for (k = 0; k < 11u; k++) {          /* the black keys: lit when on, glowing when they do something */
