@@ -60,6 +60,8 @@ void voice_start_c(uint32_t t, int32_t note, int32_t cents, float vel, int32_t g
     v->inc = note_inc((float)note + (float)cents * 0.01f, tune);
     v->pan = 0.0f;
     v->env = 0.0f;
+    v->fe = 0.0f;
+    v->fstage = 1;
     v->ienv = 1.0f;
     v->drift = 0.0f;
     v->x1 = v->x2 = v->x3 = 0.0f;
@@ -250,6 +252,10 @@ static void track_block(uint32_t t, uint32_t n)
     b->dec_k = fm_expf(-6.9f / (time_s(p[TP_DEC]) * SR));
     b->sus = pct(p[TP_SUS]);
     b->rel_k = fm_expf(-6.9f / (time_s(p[TP_REL]) * SR));
+    b->fatt = (float)n / (time_s(p[TP_FATK]) * SR);                    /* the filter envelope runs at block rate */
+    b->fdec_k = fm_expf(-6.9f * (float)n / (time_s(p[TP_FDEC]) * SR));
+    b->fsus = pct(p[TP_FSUS]);
+    b->frel_k = fm_expf(-6.9f * (float)n / (time_s(p[TP_FREL]) * SR));
     b->pitch_mod = b->cut_mod = b->lvl_mod = b->pan_mod = b->pa_mod = b->pb_mod = 0.0f;
     for (j = 0; j < 2u; j++) {
         float rate = 0.01f * fm_exp2f(pct(p[TP_L1RATE + 4 * j]) * 10.0f);   /* 0.01 .. 10 Hz */
@@ -379,7 +385,14 @@ void engines_block(uint32_t n)
         }
         b = &tb[v->trk];
         trk_active[v->trk]++;
-        hz = fm_exp2f(fm_clampf(b->cut_oct + b->fenv * v->env + b->keyt * ((float)v->note - 60.0f) / 12.0f,
+        if (v->stage == 4u)                            /* the key is up: the filter envelope releases with it */
+            v->fstage = 4;
+        switch (v->fstage) {
+        case 1: v->fe += b->fatt; if (v->fe >= 1.0f) { v->fe = 1.0f; v->fstage = 2; } break;
+        case 2: v->fe = b->fsus + (v->fe - b->fsus) * b->fdec_k; break;
+        default: v->fe *= b->frel_k; break;
+        }
+        hz = fm_exp2f(fm_clampf(b->cut_oct + b->fenv * v->fe + b->keyt * ((float)v->note - 60.0f) / 12.0f,
                                 4.9f, 14.2f));
         if (hz > 0.45f * SR)
             hz = 0.45f * SR;

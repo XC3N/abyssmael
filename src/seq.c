@@ -32,7 +32,7 @@ static uint32_t clk_tick;
 motif_t mo[NTRK];
 static int8_t hcent[NTRK][8];            /* a held note's cents above its MIDI note */
 static uint8_t held[NTRK][8], hlife[NTRK][8], held_n[NTRK], arp_i[NTRK];   /* hlife: ticks left, 0 = until the key is let go */
-static int8_t arp_dir[NTRK] = {1, 1, 1, 1, 1, 1};
+static int8_t arp_dir[NTRK] = {1, 1, 1, 1, 1};
 
 /* a scale degree's pitch in cents from C0's octave base: degrees past the scale's top go up an octave each */
 static int32_t degree_pitch(int32_t deg, int32_t oct)
@@ -62,7 +62,7 @@ uint32_t track_audible(uint32_t t)
 
 /* EUCLID and STEP: where each track is in its pattern (the step played last, for the screen) */
 uint8_t seq_pos[NTRK], seq_cur[NTRK];
-static int8_t seq_dir[NTRK] = {1, 1, 1, 1, 1, 1};
+static int8_t seq_dir[NTRK] = {1, 1, 1, 1, 1};
 uint8_t eu_hits_now[NTRK], eu_rot_now[NTRK];
 volatile uint8_t rec_mode, rec_dirty;
 static uint32_t step_tick[NTRK];         /* the clock tick a track's pattern last stepped on */
