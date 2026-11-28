@@ -986,7 +986,10 @@ middle:
             switch (a) {                      /* the colours say what a key is: a choice, MIX */
             case S_NONE: bright = dim = C_LINE; break;
             case S_MIX: bright = C_WHITE; dim = C_GRAY; break;
-            default: bright = ACC2; dim = PAL0; break;
+            default:                          /* the keys sit in groups of 3, 2 and 1: teal, violet, white */
+                if (k < 8u) { bright = ACC2; dim = PAL0; }
+                else { bright = RGB(176, 96, 200); dim = PAL8; }
+                break;
             }
             cv_rect(cx - 15, 23, 30, 9, lit ? bright : dim);
             if (a == S_NONE)
@@ -997,7 +1000,7 @@ middle:
             while (i > 1 && text_w(&FONT_S, l5) > 38)
                 l5[--i] = 0;
             lw = text_w(&FONT_S, l5);
-            cv_text(cx - lw / 2, 3, &FONT_S, l5, lit ? C_WHITE : ACC2);
+            cv_text(cx - lw / 2, 3, &FONT_S, l5, lit ? C_WHITE : a == S_MIX ? C_GRAY : k < 8u ? ACC2 : RGB(176, 96, 200));
         }
         cv_blit(0, 206);
         return;
