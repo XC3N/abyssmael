@@ -31,7 +31,7 @@ static uint16_t hit_colour(uint32_t h, uint32_t n)
 
 static uint32_t bell_page(uint32_t pg)
 {
-    return pg == PG_EDIT || pg == PG_ENV;
+    return pg == PG_EDIT || pg == PG_ENV || pg == PG_LFO;
 }
 static void bell_dot(int32_t cx, int32_t cy, int32_t r, uint32_t a, uint16_t c)   /* a point on a circle, a in 0..95 */
 {
@@ -81,7 +81,11 @@ static uint8_t d3_ready, bell_ring, bell_last;
 /* a value in the big type, in the smaller one when it would run into the next column (FREE, 1/8., names) */
 static void big_value(int32_t x, const char *t)
 {
-    if (text_w(&FONT_L, t) > 56)
+    if (text_w(&FONT_L, t) > 56 && text_w(&FONT_M, t) > 56 && text_w(&FONT_S, t) > 56)
+        cv_text(x, 124, &FONT_XS, t, C_WHITE);
+    else if (text_w(&FONT_L, t) > 56 && text_w(&FONT_M, t) > 56)
+        cv_text(x, 122, &FONT_S, t, C_WHITE);
+    else if (text_w(&FONT_L, t) > 56)
         cv_text(x, 118, &FONT_M, t, C_WHITE);
     else
         cv_text(x, 114, &FONT_L, t, C_WHITE);
@@ -317,6 +321,107 @@ static void inst_pic(const uint8_t *p, uint32_t sub)
         }
     }
 }
+/* ---- ENV and LFO pages: a smooth curve with a glow, drawn to a sixteenth of a pixel ---- */
+static void soft_plot(int32_t x, int32_t y16, uint32_t k, uint32_t cr, uint32_t cg, uint32_t cb)   /* a point at y16/16, split over two pixels */
+{
+    int32_t y = y16 >> 4, f = y16 & 15;
+    light_px(x, y, k * (uint32_t)(16 - f) / 16u, cr, cg, cb);
+    light_px(x, y + 1, k * (uint32_t)f / 16u, cr, cg, cb);
+}
+/* one column of a curve whose edge is at y16: the body fades down from the edge, the edge is bright and bloomed */
+static void curve_col(int32_t x, int32_t y16, int32_t base, uint32_t body)
+{
+    int32_t y, top = (y16 + 15) >> 4;
+    for (y = top; y < base; y++) {
+        uint32_t depth = (uint32_t)(y - top), k = body * (uint32_t)(80 - (int32_t)(depth > 79u ? 79u : depth)) / 80u;
+        light_px(x, y, k, 0, 28, 14);
+    }
+    soft_plot(x, y16, 255u, 9, 56, 26);
+    soft_plot(x, y16 - 24, 90u, 5, 36, 20);
+    soft_plot(x, y16 + 24, 50u, 5, 36, 20);
+}
+static void bell_ground(void)
+{
+    int32_t gy;
+    for (gy = 0; gy < 100; gy++)
+        cv_rect(0, gy, 240, 1, mixc(PAL6, PAL4, (uint32_t)gy));
+}
+/* the four stages of an envelope over 232 columns: the curve, the stage dividers, A D S R over each stage; scale 0..100 the height */
+static void env_pic(uint32_t a, uint32_t dc, uint32_t s, uint32_t r, uint32_t scale, uint32_t body)
+{
+    int32_t wa = 10 + (int32_t)a * 52 / 100, wd = 10 + (int32_t)dc * 52 / 100, ws = 44, wr = 10 + (int32_t)r * 52 / 100, x;
+    int32_t tot = wa + wd + ws + wr, hmax = 84 * (int32_t)scale / 100, sh = (int32_t)s * hmax / 100, edge[4];
+    static const char *const L[4] = {"A", "D", "S", "R"};
+    int32_t xs[5];
+    bell_ground();
+    xs[0] = 4;
+    xs[1] = 4 + wa * 232 / tot;
+    xs[2] = 4 + (wa + wd) * 232 / tot;
+    xs[3] = 4 + (wa + wd + ws) * 232 / tot;
+    xs[4] = 236;
+    cv_rect(4, 96, 232, 1, PAL0);                                    /* the floor */
+    for (x = 0; x < 232; x++) {
+        int32_t u = x * tot / 232, uf = x * tot * 16 / 232, y16;
+        int32_t h16;
+        if (u < wa)
+            h16 = hmax * 16 * uf / (wa * 16);
+        else if (u < wa + wd)
+            h16 = hmax * 16 - (hmax - sh) * 16 * (uf - wa * 16) / (wd * 16);
+        else if (u < wa + wd + ws)
+            h16 = sh * 16;
+        else
+            h16 = sh * 16 * (tot * 16 - uf) / (wr * 16);
+        if (h16 < 0)
+            h16 = 0;
+        y16 = (96 << 4) - h16;
+        curve_col(4 + x, y16, 96, body);
+    }
+    for (x = 1; x < 4; x++)                                          /* where one stage hands over to the next */
+        cv_rect(xs[x], 8, 1, 88, PAL3);
+    for (x = 0; x < 4; x++) {
+        edge[x] = (xs[x] + xs[x + 1]) / 2;
+        cv_text(edge[x] - 3, 2, &FONT_T, L[x], x == 2 ? ACC1 : ACC2);
+    }
+}
+/* one LFO: a few cycles of its shape (rate the number of cycles, depth the height), a faint centre line */
+static uint32_t lfo_hash(uint32_t i) { i = i * 2654435761u + 12345u; i ^= i >> 15; i *= 2246822519u; return (i >> 8) & 0xFFFFu; }
+static void lfo_pic(uint32_t rate, uint32_t depth, uint32_t shape)
+{
+    int32_t x, amp = 6 + (int32_t)depth * 40 / 100, cy = 50, prev16 = 0;
+    uint32_t cyc10 = 10u + rate * 60u / 100u;
+    bell_ground();
+    cv_rect(4, cy, 232, 1, PAL3);
+    for (x = 0; x < 232; x++) {
+        uint32_t ph = (uint32_t)x * cyc10 * 1024u / 2320u, t = ph % 1024u, i = ph / 1024u;
+        int32_t v, y16, a;
+        switch (shape) {
+        case 0: v = sin96(t * 96u / 1024u); break;
+        case 1: v = t < 512u ? -100 + (int32_t)t * 200 / 512 : 100 - ((int32_t)t - 512) * 200 / 512; break;
+        case 2: v = -100 + (int32_t)t * 200 / 1024; break;
+        case 3: v = t < 512u ? 100 : -100; break;
+        case 4: v = (int32_t)(lfo_hash(i) % 201u) - 100; break;
+        default: {                                                   /* drift: a smooth walk between random points */
+            int32_t v0 = (int32_t)(lfo_hash(i) % 201u) - 100, v1 = (int32_t)(lfo_hash(i + 1u) % 201u) - 100, f = (int32_t)t * 100 / 1024;
+            int32_t sm = f * f * (300 - 2 * f) / 10000;                  /* smoothstep, 0..100 */
+            v = v0 + (v1 - v0) * sm / 100;
+            break;
+        }
+        }
+        y16 = (cy << 4) - v * amp * 16 / 100;
+        if (x && (shape == 3u || shape == 4u) && (y16 > prev16 + 160 || y16 < prev16 - 160)) {   /* the vertical edge of a step */
+            int32_t lo = y16 < prev16 ? y16 : prev16, hi = y16 < prev16 ? prev16 : y16, yy;
+            for (yy = lo; yy <= hi; yy += 16)
+                soft_plot(4 + x, yy, 200u, 9, 56, 26);
+        }
+        prev16 = y16;
+        a = (y16 >> 4) < cy ? y16 >> 4 : cy;
+        for (; a < ((y16 >> 4) < cy ? cy : y16 >> 4); a++)            /* the fill between the line and the centre */
+            light_px(4 + x, a, 38u, 0, 28, 14);
+        soft_plot(4 + x, y16, 255u, 9, 56, 26);
+        soft_plot(4 + x, y16 - 32, 80u, 5, 36, 20);
+        soft_plot(4 + x, y16 + 32, 80u, 5, 36, 20);
+    }
+}
 static void bell_draw(uint32_t pg, uint32_t sub)
 {
     const uint8_t *p = sc.tp[cur_trk];
@@ -326,14 +431,11 @@ static void bell_draw(uint32_t pg, uint32_t sub)
     char t[16];
     cv_rect(0, 0, 240, 100, PAL5);
     if (pg == PG_ENV && sub == 0u) {         /* AMP: the curve of the loudness */
-        env_curve(pt, p[TP_ATK], p[TP_DEC], p[TP_SUS], p[TP_REL], 88);
-        bell_graph(pt, 96, 88, PAL0, PAL4);
+        env_pic(p[TP_ATK], p[TP_DEC], p[TP_SUS], p[TP_REL], 100u, 130u);
     } else if (pg == PG_ENV) {               /* FILTER ENV: its own curve, as tall as the amount (set on EDIT 3) says */
-        env_curve(pt, p[TP_FATK], p[TP_FDEC], p[TP_FSUS], p[TP_FREL], 88);
-        for (x = 0; x < 232; x++)
-            pt[x] = (uint8_t)(pt[x] * (12 + (int32_t)p[TP_FENV] * 88 / 100) / 100);
-        bell_graph(pt, 96, 88, ACC1, PAL3);
-        cv_rect(4, 96 - 12 * 88 / 100, 232, 1, PAL0);        /* where the filter rests */
+        env_pic(p[TP_FATK], p[TP_FDEC], p[TP_FSUS], p[TP_FREL], 12u + p[TP_FENV] * 88u / 100u, 130u);
+    } else if (pg == PG_LFO) {               /* the LFO: its shape at its rate and depth */
+        lfo_pic(p[TP_L1RATE + 4u * sub], p[TP_L1DEP + 4u * sub], p[TP_L1SHP + 4u * sub]);
     } else if (sub < 2u && p[TP_INST] != I_BELL) {
         inst_pic(p, sub);
     } else if (sub == 0u) {                  /* METAL: smooth rings and a glow, drawn pixel by pixel (see bell_metal) */

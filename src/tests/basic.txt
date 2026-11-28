@@ -455,3 +455,28 @@ shot texture_env1.png
 spin PRESET 1
 wait 40
 shot texture_env2.png
+
+# LFO pictures: each shape
+wait 1500
+tap LFO
+wait 40
+spin K3 -9
+wait 40
+shot lfo_sine.png
+spin K3 1
+wait 40
+shot lfo_triangle.png
+spin K3 1
+wait 40
+shot lfo_saw.png
+spin K3 1
+wait 40
+shot lfo_square.png
+spin K3 1
+wait 40
+shot lfo_random.png
+spin K3 1
+wait 40
+shot lfo_drift.png
+spin K3 1
+wait 40
