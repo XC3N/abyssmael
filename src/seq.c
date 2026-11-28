@@ -11,6 +11,10 @@ static kev_t kq[32];
 static volatile uint32_t kq_w, kq_r;
 void key_event(uint32_t trk, int32_t note, uint32_t vel, uint32_t on)
 {
+    key_event_c(trk, note, 0, vel, on);
+}
+void key_event_c(uint32_t trk, int32_t note, int32_t cents, uint32_t vel, uint32_t on)
+{
     uint32_t w = kq_w;
     if (note < 12 || note > 115 || w - kq_r >= 32u)
         return;
@@ -18,6 +22,7 @@ void key_event(uint32_t trk, int32_t note, uint32_t vel, uint32_t on)
     kq[w & 31u].note = (uint8_t)note;
     kq[w & 31u].vel = (uint8_t)vel;
     kq[w & 31u].on = (uint8_t)on;
+    kq[w & 31u].cents = (int8_t)cents;
     kq_w = w + 1u;
 }
 
@@ -25,15 +30,26 @@ void key_event(uint32_t trk, int32_t note, uint32_t vel, uint32_t on)
 static float clk_left;                   /* samples to the next sixteenth */
 static uint32_t clk_tick;
 motif_t mo[NTRK];
+static int8_t hcent[NTRK][8];            /* a held note's cents above its MIDI note */
 static uint8_t held[NTRK][8], hlife[NTRK][8], held_n[NTRK], arp_i[NTRK];   /* hlife: ticks left, 0 = until the key is let go */
 static int8_t arp_dir[NTRK] = {1, 1, 1, 1, 1, 1};
 
-int32_t degree_note(int32_t deg, int32_t oct)
+/* a scale degree's pitch in cents from C0's octave base: degrees past the scale's top go up an octave each */
+static int32_t degree_pitch(int32_t deg, int32_t oct)
 {
     uint32_t sci = sc.gp[GP_SCALE], len = SCALE_LEN[sci];
     int32_t o = deg >= 0 ? deg / (int32_t)len : -((-deg + (int32_t)len - 1) / (int32_t)len);
     int32_t d = deg - o * (int32_t)len;
-    return 12 * (oct + o + 1) + sc.gp[GP_KEY] + SCALE_DEG[sci][d];
+    return 100 * (12 * (oct + o + 1) + (int32_t)sc.gp[GP_KEY]) + SCALE_CENT[sci][d];
+}
+int32_t degree_note(int32_t deg, int32_t oct)
+{
+    return (degree_pitch(deg, oct) + 50) / 100;
+}
+int32_t degree_cents(int32_t deg, int32_t oct)
+{
+    int32_t c = degree_pitch(deg, oct);
+    return c - 100 * ((c + 50) / 100);
 }
 
 uint32_t track_audible(uint32_t t)
@@ -48,6 +64,8 @@ uint32_t track_audible(uint32_t t)
 uint8_t seq_pos[NTRK], seq_cur[NTRK];
 static int8_t seq_dir[NTRK] = {1, 1, 1, 1, 1, 1};
 uint8_t eu_hits_now[NTRK], eu_rot_now[NTRK];
+volatile uint8_t rec_mode, rec_dirty;
+static uint32_t step_tick[NTRK];         /* the clock tick a track's pattern last stepped on */
 static uint16_t seq_n[NTRK];             /* steps run since play started: pass = seq_n / length */
 static int8_t drift_h[NTRK], drift_r[NTRK];   /* EUCL DRIFT: how far the hits and rotation have wandered */
 static uint8_t prev_ok[NTRK];            /* the last tested hit played (for PRE) */
@@ -82,17 +100,17 @@ static uint32_t cond_ok(uint32_t t, uint32_t c, uint32_t pass)
 }
 
 /* a sequenced note: it sounds, or with the arpeggio fed from the sequencer it goes into the arpeggio's list for its gate */
-static void held_add(uint32_t t, uint32_t note, uint32_t life);
-static void seq_note(uint32_t t, int32_t note, float vel, float gate_s, float tick_s)
+static void held_add(uint32_t t, uint32_t note, int32_t cents, uint32_t life);
+static void seq_note(uint32_t t, int32_t note, int32_t cents, float vel, float gate_s, float tick_s)
 {
     const uint8_t *p = sc.tp[t];
     last_play[t] = clk_tick + 1u;
     if (p[TP_ARPON] && p[TP_ARPSRC] != 0u) {
         uint32_t life = (uint32_t)(gate_s / tick_s + 0.999f);
-        held_add(t, (uint32_t)note, life < 1u ? 1u : life > 255u ? 255u : life);
+        held_add(t, (uint32_t)note, cents, life < 1u ? 1u : life > 255u ? 255u : life);
         return;
     }
-    voice_start(t, note, vel, (int32_t)(gate_s * SR));
+    voice_start_c(t, note, cents, vel, (int32_t)(gate_s * SR));
 }
 
 /* EUCL DRIFT, once a pass: the hits or the rotation wander by one, and now and then step back toward the set values */
@@ -117,6 +135,7 @@ static void pat_step(uint32_t t, float tick_s, uint32_t rt, int32_t oct)
     int32_t deg = -1;
     uint32_t len, k;
     float chance;
+    step_tick[t] = clk_tick;
     if (p[TP_SMODE] == 1u) {                 /* EUCLID */
         int32_t h, hits, rot, pos;
         len = p[TP_ELEN];
@@ -188,7 +207,7 @@ static void pat_step(uint32_t t, float tick_s, uint32_t rt, int32_t oct)
     {
         float gate = tick_s * (float)rt * (0.05f + 3.95f * pct(p[TP_GATE]) * pct(p[TP_GATE]));
         float vel = 1.0f - pct(p[TP_ACCENT]) * am_rndf() * 0.7f;
-        seq_note(t, degree_note(deg, oct), vel, gate, tick_s);
+        seq_note(t, degree_note(deg, oct), degree_cents(deg, oct), vel, gate, tick_s);
     }
 }
 
@@ -223,7 +242,7 @@ static void gen_step(uint32_t t, float tick_s)
     {
         float gate = tick_s * (float)rt * (0.05f + 3.95f * pct(p[TP_GATE]) * pct(p[TP_GATE]));
         float vel = 1.0f - pct(p[TP_ACCENT]) * am_rndf() * 0.7f;
-        seq_note(t, degree_note(deg, oct), vel, gate, tick_s);
+        seq_note(t, degree_note(deg, oct), degree_cents(deg, oct), vel, gate, tick_s);
     }
 }
 
@@ -264,14 +283,14 @@ static void arp_play(uint32_t t, float tick_s, uint32_t rt, uint32_t n)
         break;
     default: k = am_rnd() % n; break;
     }
-    voice_start(t, held[t][k], 0.9f, (int32_t)(tick_s * (float)rt * (0.1f + 1.4f * pct(p[TP_ARPGATE])) * SR));
+    voice_start_c(t, held[t][k], hcent[t][k], 0.9f, (int32_t)(tick_s * (float)rt * (0.1f + 1.4f * pct(p[TP_ARPGATE])) * SR));
 }
 
-static void held_add(uint32_t t, uint32_t note, uint32_t life)
+static void held_add(uint32_t t, uint32_t note, int32_t cents, uint32_t life)
 {
     uint32_t i, j;
     for (i = 0; i < held_n[t]; i++)
-        if (held[t][i] == note) {
+        if (held[t][i] == note && hcent[t][i] == cents) {
             if (hlife[t][i] && life > hlife[t][i])    /* a sequenced note again: keep it longer; a held key stays held */
                 hlife[t][i] = (uint8_t)life;
             else if (!life)
@@ -283,8 +302,9 @@ static void held_add(uint32_t t, uint32_t note, uint32_t life)
     for (i = 0; i < held_n[t] && held[t][i] < note; i++)
         ;
     for (j = held_n[t]; j > i; j--)
-        held[t][j] = held[t][j - 1], hlife[t][j] = hlife[t][j - 1];
+        held[t][j] = held[t][j - 1], hlife[t][j] = hlife[t][j - 1], hcent[t][j] = hcent[t][j - 1];
     held[t][i] = (uint8_t)note;
+    hcent[t][i] = (int8_t)cents;
     hlife[t][i] = (uint8_t)life;
     held_n[t]++;
 }
@@ -294,24 +314,67 @@ static void held_remove(uint32_t t, uint32_t note)
     for (i = 0; i < held_n[t]; i++)
         if (held[t][i] == note) {
             for (j = i; j + 1u < held_n[t]; j++)
-                held[t][j] = held[t][j + 1], hlife[t][j] = hlife[t][j + 1];
+                held[t][j] = held[t][j + 1], hlife[t][j] = hlife[t][j + 1], hcent[t][j] = hcent[t][j + 1];
             held_n[t]--;
             return;
         }
 }
 
+/* LIVE REC: write a played key into the track's pattern at the nearest step (the one that played, or the next if more than
+ * half its length has gone by), as the nearest scale degree of the track's octave range (octaves fold in) */
+static void rec_key(uint32_t t, const kev_t *e, float tick_s)
+{
+    const uint8_t *p = sc.tp[t];
+    uint32_t mode = p[TP_SMODE], len, dir, rt = RATE_TICKS[p[TP_RATE]], pos, d;
+    int32_t oct = INST_OCT[p[TP_INST]] + (int32_t)p[TP_OCT] - 3, deg, best = 99999, want = 100 * (int32_t)e->note + e->cents;
+    float el;
+    if (!mode)
+        return;
+    for (d = 0, deg = 0; d < 16u; d++) {
+        int32_t diff = degree_note((int32_t)d, oct) * 100 + degree_cents((int32_t)d, oct) - want, a = diff < 0 ? -diff : diff;
+        int32_t fold = a % 1200;
+        fold = fold > 600 ? 1200 - fold : fold;
+        if (fold * 8 + a / 1200 < best)
+            best = fold * 8 + a / 1200, deg = (int32_t)d;
+    }
+    len = mode == 1u ? p[TP_ELEN] : p[TP_SLEN];
+    dir = mode == 1u ? p[TP_EDIR] : p[TP_SDIR];
+    el = (float)(clk_tick - 1u - step_tick[t]) + 1.0f - clk_left / (tick_s * SR);
+    pos = seq_cur[t] % len;
+    if (el * 2.0f >= (float)rt && dir <= 1u)
+        pos = dir ? len - 1u - seq_pos[t] % len : seq_pos[t] % len;
+    if (mode == 2u) {
+        sc.sn[t][pos] = (uint8_t)deg;
+        sc.son[t] |= (uint16_t)(1u << pos);
+    } else {
+        uint32_t hits = eu_hits_now[t], rot = eu_rot_now[t] % len;
+        int32_t h = -1;
+        for (d = 0; d <= len / 2u && h < 0; d++) {
+            h = eu_hit((pos + d + len - rot) % len, hits, len);
+            if (h < 0)
+                h = eu_hit((pos + len - d % len + len - rot) % len, hits, len);
+        }
+        if (h < 0)
+            return;
+        sc.hn[t][h] = (uint8_t)deg;
+    }
+    rec_dirty = 1;
+}
+
 static void key_play(const kev_t *e)
 {
     uint32_t t = e->trk;
+    if (e->on && rec_mode == 1u && playing)
+        rec_key(t, e, 15.0f / (float)sc.gp[GP_TEMPO]);
     if (sc.tp[t][TP_ARPON] && sc.tp[t][TP_ARPSRC] != 1u) {   /* with the arpeggio, keys only add notes to its list */
         if (e->on)
-            held_add(t, e->note, 0u);
+            held_add(t, e->note, e->cents, 0u);
         else
             held_remove(t, e->note);
         return;
     }
     if (e->on)
-        voice_start(t, e->note, (float)e->vel / 127.0f, -1);
+        voice_start_c(t, e->note, e->cents, (float)e->vel / 127.0f, -1);
     else
         voice_release_note(t, e->note);
 }
@@ -353,6 +416,7 @@ void seq_block(uint32_t n)
             e.trk = (uint8_t)ch;
             e.note = (uint8_t)d1;
             e.vel = (uint8_t)d2;
+            e.cents = 0;
             if (st == 0x90u && d2) {
                 e.on = 1;
                 key_play(&e);
