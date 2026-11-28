@@ -32,14 +32,27 @@ static const char *const INST_P[NINST][8] = {
 };
 static const int8_t INST_OCT[NINST] = {2, 3, 5, 4, 4};   /* each instrument's home octave */
 
-#define NSCALE 10
+/* the scales: each degree's pitch in cents above the root (100 = a semitone), one octave of 1200. The first ten are 12-TET;
+ * the others are tuned: gamelan (averages of measured sets; every real gamelan differs), just intonation, maqam. */
+#define NSCALE 19
 static const char *const SCALE_NAME[NSCALE] = {"MAJOR", "MINOR", "DORIAN", "PHRYGIAN", "LYDIAN", "MIXOLYD",
-                                               "PENT MAJ", "PENT MIN", "HIRAJOSHI", "WHOLE"};
-static const uint8_t SCALE_LEN[NSCALE] = {7, 7, 7, 7, 7, 7, 5, 5, 5, 6};
-static const uint8_t SCALE_DEG[NSCALE][7] = {
-    {0, 2, 4, 5, 7, 9, 11}, {0, 2, 3, 5, 7, 8, 10}, {0, 2, 3, 5, 7, 9, 10}, {0, 1, 3, 5, 7, 8, 10},
-    {0, 2, 4, 6, 7, 9, 11}, {0, 2, 4, 5, 7, 9, 10}, {0, 2, 4, 7, 9}, {0, 3, 5, 7, 10}, {0, 2, 3, 7, 8},
-    {0, 2, 4, 6, 8, 10}};
+                                               "PENT MAJ", "PENT MIN", "HIRAJOSHI", "WHOLE",
+                                               "SLENDRO", "PELOG", "PELOG 5", "IN SEN", "JUST MAJ", "JUST MIN",
+                                               "OVERTONE", "RAST", "BAYATI"};
+static const uint8_t SCALE_LEN[NSCALE] = {7, 7, 7, 7, 7, 7, 5, 5, 5, 6, 5, 7, 5, 5, 7, 7, 7, 7, 7};
+static const int16_t SCALE_CENT[NSCALE][7] = {
+    {0, 200, 400, 500, 700, 900, 1100}, {0, 200, 300, 500, 700, 800, 1000}, {0, 200, 300, 500, 700, 900, 1000},
+    {0, 100, 300, 500, 700, 800, 1000}, {0, 200, 400, 600, 700, 900, 1100}, {0, 200, 400, 500, 700, 900, 1000},
+    {0, 200, 400, 700, 900}, {0, 300, 500, 700, 1000}, {0, 200, 300, 700, 800}, {0, 200, 400, 600, 800, 1000},
+    {0, 240, 480, 720, 960},                        /* SLENDRO: five near-equal steps */
+    {0, 120, 270, 540, 670, 785, 950},              /* PELOG: seven unequal steps */
+    {0, 120, 270, 670, 785},                        /* PELOG 5: its five-note subset (1 2 3 5 6) */
+    {0, 100, 500, 700, 800},                        /* IN SEN: the Japanese in scale, no equal-tempered 12 */
+    {0, 204, 386, 498, 702, 884, 1088},             /* JUST MAJ: 1 9/8 5/4 4/3 3/2 5/3 15/8 */
+    {0, 204, 316, 498, 702, 814, 996},              /* JUST MIN: 1 9/8 6/5 4/3 3/2 8/5 16/9 */
+    {0, 204, 386, 551, 702, 841, 969},              /* OVERTONE: partials 8 to 14 */
+    {0, 204, 350, 498, 702, 904, 1050},             /* RAST: neutral third and seventh */
+    {0, 150, 316, 498, 702, 792, 996}};             /* BAYATI: the quarter-tone second */
 static const char *const NOTE_NAME[12] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
 static const char *const LFO_SHAPE[6] = {"SINE", "TRIANGLE", "SAW", "SQUARE", "RANDOM", "DRIFT"};
 static const char *const LFO_TGT[6] = {"PITCH", "CUTOFF", "LEVEL", "PAN", "SOUND A", "SOUND B"};
@@ -186,7 +199,7 @@ typedef struct {
 } store_t;
 
 /* ------------------------------------------------------------------ shared --- */
-typedef struct { uint8_t trk, note, vel, on; } kev_t;
+typedef struct { uint8_t trk, note, vel, on; int8_t cents; } kev_t;   /* cents: the key's pitch above its note, -50..49 */
 #define KS_LEN 1024u
 typedef struct {
     uint8_t on, trk, inst, stage;        /* stage: 1 attack, 2 decay, 3 sustain, 4 release */
@@ -222,6 +235,8 @@ uint32_t sleep_left_s(void);                 /* seconds to go (0 when off) */
 extern volatile uint8_t prof_pct[5], prof_max[5];   /* [4]: the whole app_render call (R), so C - R is the rest of the audio interrupt */
 extern voice_t vc[NVOICE];
 extern motif_t mo[NTRK];
+extern volatile uint8_t rec_mode;                  /* REC: 0 off, 1 LIVE (seq.c writes played keys into the pattern), 2 STEP (the UI's cursor entry); the UI writes it */
+extern volatile uint8_t rec_dirty;                 /* seq.c wrote the scene in LIVE REC: the UI marks the scene changed and clears it */
 extern uint8_t seq_pos[NTRK], seq_cur[NTRK];
 extern uint8_t eu_hits_now[NTRK], eu_rot_now[NTRK];   /* EUCLID: the hits and rotation in play (HITS and ROTATE plus DRIFT) */
 
@@ -263,11 +278,14 @@ void app_render(int32_t *lr, uint32_t n, uint32_t master_q12);
 /* --- seq.c */
 void seq_panic(void);
 void seq_block(uint32_t n);                       /* the keys, MIDI and clock for a block of n frames */
+void key_event_c(uint32_t trk, int32_t note, int32_t cents, uint32_t vel, uint32_t on);   /* the same, with the key's cents */
 void key_event(uint32_t trk, int32_t note, uint32_t vel, uint32_t on);   /* a key, from the UI, queued for the render */
-int32_t degree_note(int32_t deg, int32_t oct);    /* the scale's degree (0 up) as a MIDI note */
+int32_t degree_note(int32_t deg, int32_t oct);    /* the scale's degree (0 up) as the nearest MIDI note */
+int32_t degree_cents(int32_t deg, int32_t oct);   /* ... and how far the degree is above that note, in cents (-50..49) */
 uint32_t track_audible(uint32_t t);               /* muted or soloed out? */
 int32_t eu_hit(uint32_t j, uint32_t hits, uint32_t len);   /* a Euclidean step's hit number, or -1 */
 /* --- engines.c */
+void voice_start_c(uint32_t t, int32_t note, int32_t cents, float vel, int32_t gate);   /* cents above the note */
 void voice_start(uint32_t t, int32_t note, float vel, int32_t gate);
 void voice_release_note(uint32_t t, int32_t note);
 void engines_block(uint32_t n);                   /* each track's and voice's values for a block */
