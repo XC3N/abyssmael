@@ -153,6 +153,10 @@ int app_expect(const char *what, int *got)
         *got = (int)notes_played;
     else if (!strcmp(what, "track"))
         *got = cur_trk;
+    else if (!strcmp(what, "delay_ms"))
+        *got = (int)(fx_delay_seconds() * 1000.0f + 0.5f);
+    else if (!strcmp(what, "dsync"))
+        *got = sc.gp[GP_DSYNC];
     else if (!strcmp(what, "page"))
         *got = ui.page * 10 + ui.sub[ui.page];
     else if (!strcmp(what, "inst"))

@@ -279,7 +279,7 @@ static int32_t scale_key_note(uint32_t wi)
 enum { S_NONE, S_TRK, S_INST, S_ENV, S_LFO, S_SEQ, S_ARP, S_SEND,
        S_PLAY, S_LATCH, S_MMODE, S_MTRK, S_MCLR, S_SCLR, S_MIX,
        S_SMODE, S_RAND, S_REST,
-       S_PLOAD, S_PNEW, S_PSAVE, S_PDEL, S_PNAME, S_NOK, S_NPREV, S_NNEXT, S_NSPC, S_NLIST };
+       S_DSYNC, S_PLOAD, S_PNEW, S_PSAVE, S_PDEL, S_PNAME, S_NOK, S_NPREV, S_NNEXT, S_NSPC, S_NLIST };
 static const char *const TRK_LBL[NTRK] = {"BEL", "PLK", "PAD", "DRN", "TEX"};
 static const char *const INST_SHORT[NINST] = {"DRN", "PAD", "BEL", "PLK", "TEX"};
 static const char *const INST_3[NINST] = {"DRN", "PAD", "BEL", "PLK", "TEX"};
@@ -370,6 +370,13 @@ static uint32_t slot(uint32_t bi, uint32_t *arg, const char **lbl, uint32_t *lit
         return S_RAND;
     case PG_ARP: *lbl = ARP_LBL[c]; *lit = c == 0u ? !p[TP_ARPON] : p[TP_ARPON] && p[TP_ARPPAT] == c - 1u; return S_ARP;
     case PG_FX:
+        if (sub == 3u) {                     /* DELAY SYNC: the note lengths a key sets (K1 has all nine) */
+            static const uint8_t DS[5] = {0, 3, 4, 6, 7};   /* FREE, 1/8, 1/8., 1/4, 1/4. */
+            *arg = DS[c];
+            *lbl = DSYNC_NAME[DS[c]];
+            *lit = sc.gp[GP_DSYNC] == DS[c];
+            return S_DSYNC;
+        }
         *lbl = SEND_LBL[c];
         *lit = p[TP_DSEND] == SEND_SET[c][0] && p[TP_RSEND] == SEND_SET[c][1];
         return S_SEND;
@@ -615,6 +622,11 @@ static void black_key(uint32_t bi, int down)
         p[TP_RSEND] = SEND_SET[arg][1];
         sc_dirty = 1;
         app_say("SENDS", SEND_LBL[arg]);
+        break;
+    case S_DSYNC:
+        sc.gp[GP_DSYNC] = (uint8_t)arg;
+        sc_dirty = 1;
+        app_say("DELAY SYNC", DSYNC_NAME[arg]);
         break;
     case S_PLOAD:
         if (ui.proj < NFACT || proj_saved(ui.proj)) {

@@ -250,6 +250,46 @@ static void bell_draw(uint32_t pg, uint32_t sub)
     }
 }
 
+/* FX 4, DELAY SYNC: the echoes on a time line, the beats of the tempo as faint ticks; each echo is quieter by the feedback,
+ * the whole row by the mix, the tone sets how bright they are */
+static void fx_sync_draw(void)
+{
+    uint32_t fb = sc.gp[GP_DFB], tone = sc.gp[GP_DTONE], mx = sc.gp[GP_DMIX], k, amp, beat_px;
+    int32_t gy, x;
+    uint32_t dl_px = (uint32_t)(fx_delay_seconds() * 232.0f / 1.6f + 0.5f);   /* the line shows 1.6 seconds */
+    char t[16];
+    for (gy = 0; gy < 100; gy++)
+        cv_rect(0, gy, 240, 1, mixc(PAL6, PAL4, (uint32_t)gy));
+    beat_px = (uint32_t)(60.0f * 232.0f / 1.6f / (float)sc.gp[GP_TEMPO] + 0.5f);
+    if (beat_px >= 6u)
+        for (x = 4; x < 236; x += (int32_t)beat_px)
+            cv_rect(x, 8, 1, 90, PAL3);                      /* the beats */
+    cv_rect(4, 98, 232, 1, PAL0);
+    amp = 40u + mx * 60u / 100u;                               /* the loudness of the first echo 40..100 */
+    for (k = 0; k < 12u; k++) {
+        int32_t xx = 4 + (int32_t)(k * dl_px), h;
+        if (xx > 236)
+            break;
+        h = (int32_t)(k ? amp : 100u) * 84 / 100;
+        {   /* each echo is the feedback of the one before */
+            uint32_t q;
+            for (q = 0; q < k; q++)
+                h = h * (int32_t)(fb * 92u / 100u + 4u) / 100;
+        }
+        if (h < 2)
+            break;
+        glow_at(xx + 1, 98 - h / 2, 9, ACC2, k ? 90u : 160u);
+        cv_rect(xx, 98 - h, 3, h, k ? mixc(PAL0, ACC3, tone) : C_WHITE);
+    }
+    for (k = 0; k < 4u; k++) {
+        uint32_t ref = page_ref(PG_FX, 3, k);
+        int32_t xx = 4 + (int32_t)k * 59;
+        cv_text(xx, 102, &FONT_T, ref_name(ref), ACC2);
+        ref_text(ref, t);
+        cv_text(xx, 114, &FONT_L, t, C_WHITE);
+    }
+}
+
 static void draw(void)
 {
     /* the tonal voices (1-3) warm, the background voices (4, 5) cool */
@@ -546,6 +586,8 @@ static void draw(void)
             cv_text(8, 141, &FONT_S, t, C_GRAY);
             tag_drawn = APP_TAGLINE[0] == 'v';
         }
+    } else if (pg == PG_FX && sub == 3u) {
+        fx_sync_draw();
     } else if (bell_page(pg)) {              /* the bell: one picture per page, drawn from the four values, big numbers under it */
         bell_draw(pg, sub);
     } else if (pg == PG_SAV && sub == 0u) {  /* the projects: four factory (locked), six of yours; K1 moves */
