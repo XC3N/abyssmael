@@ -11,6 +11,10 @@
 #define PAL6 RGB(39, 38, 64)
 #define PAL8 RGB(62, 31, 71)
 #define PAL9 RGB(77, 25, 77)
+/* the ground of the pictures: much darker than the palette's indigo, because the panel lifts dark colours a long way (a photo of
+ * PAL6 to PAL4 on the device showed a pale blue) */
+#define GND_A RGB(8, 8, 20)
+#define GND_B RGB(6, 20, 28)
 #define ACC1 RGB(19, 111, 99)
 #define ACC2 RGB(34, 170, 161)
 #define ACC3 RGB(76, 224, 210)
@@ -179,7 +183,7 @@ static void bell_metal(const uint8_t *p)
     cxb = 120 + sep * (int32_t)two * SIN96[(ph + 72u) % 96u] / 100;
     cyb = 50 + sep * (int32_t)two * SIN96[(ph * 13u / 10u) % 96u] * 35 / 10000;
     for (y = 0; y < 100u; y++) {
-        uint16_t gc = mixc(PAL6, PAL4, y);      /* the ground fades from indigo to blue-teal going down */
+        uint16_t gc = mixc(GND_A, GND_B, y);      /* the ground fades from indigo to blue-teal going down */
         uint32_t gr = gc >> 11, gg = (gc >> 5) & 63u, gb = gc & 31u;
         cv_rect(0, (int32_t)y, 240, 1, gc);
         for (x = 42; x < 198u; x++) {
@@ -203,6 +207,26 @@ static void bell_metal(const uint8_t *p)
     }
 }
 
+/* a curve given as heights in sixteenths of a pixel for n columns: smooth (each point split over two pixels), the steep parts joined,
+ * with a soft bloom either side */
+static void soft_plot(int32_t x, int32_t y16, uint32_t k, uint32_t cr, uint32_t cg, uint32_t cb);
+static void wave_draw(const int32_t *y16, uint32_t n)
+{
+    uint32_t x;
+    for (x = 0; x < n; x++) {
+        int32_t y = y16[x], lo = y, hi = y, yy;
+        if (x) {
+            int32_t pv = y16[x - 1];
+            lo = pv < y ? pv : y;
+            hi = pv < y ? y : pv;
+        }
+        for (yy = lo; yy < hi - 16; yy += 16)            /* a steep stretch: fill it in */
+            soft_plot(4 + (int32_t)x, yy + 16, 180u, 9, 56, 26);
+        soft_plot(4 + (int32_t)x, y, 255u, 9, 56, 26);
+        soft_plot(4 + (int32_t)x, y - 32, 80u, 5, 36, 20);
+        soft_plot(4 + (int32_t)x, y + 32, 80u, 5, 36, 20);
+    }
+}
 /* ---- the other instruments' EDIT 1 and 2: one picture each, from the four values (the bell's are in bell_draw) ---- */
 static int32_t sin96(uint32_t i) { return SIN96[(i + 72u) % 96u]; }
 static int32_t cos96(uint32_t i) { return SIN96[i % 96u]; }
@@ -237,28 +261,34 @@ static void inst_pic(const uint8_t *p, uint32_t sub)
     uint32_t inst = p[TP_INST], a = p[TP_P0 + sub * 4u], b = p[TP_P1 + sub * 4u], c = p[TP_P2 + sub * 4u], e = p[TP_P3 + sub * 4u], i, rng = 12345u + inst * 977u + sub * 31u;
     int32_t gy, x, y;
     for (gy = 0; gy < 100; gy++)
-        cv_rect(0, gy, 240, 1, mixc(PAL6, PAL4, (uint32_t)gy));
+        cv_rect(0, gy, 240, 1, mixc(GND_A, GND_B, (uint32_t)gy));
     if (inst == I_PLUCK && sub == 0u) {      /* STRING: damp, bright, sustain, position: a standing wave, the pluck point marked */
-        uint32_t nh = 1u + b * 6u / 100u;
-        string_line(0, 50, 8 + (int32_t)c * 36 / 100, nh, e, a, PAL0);
-        cv_rect(0, 0, 0, 0, 0);
-        string_line(0, 49, 8 + (int32_t)c * 36 / 100, nh, e, a, ACC3);
+        uint32_t nh = 1u + b * 6u / 100u, m;
+        static int32_t y16[232];
+        float amp = 8.0f + (float)c * 0.36f, pos = (float)e / 100.0f;
+        for (x = 0; x < 232; x++) {
+            float u = (float)x / 231.0f, sum = 0.0f;
+            for (m = 1; m <= nh; m++)                   /* each harmonic, weighted by where the string was plucked */
+                sum += fm_fabsf(fm_sinf(3.14159265f * (float)m * pos)) * fm_sinf(3.14159265f * (float)m * u) / (float)m;
+            sum *= 1.6f * (1.0f - 0.85f * ((float)a / 100.0f) * u);                    /* the damping takes the far end down */
+            y16[x] = (int32_t)((50.0f - amp * sum) * 16.0f);
+        }
+        wave_draw(y16, 232);
         x = 4 + (int32_t)e * 224 / 100;
         glow_at(x, 50, 12, ACC3, 200u);
         disc_at(x, 50, 3, C_WHITE);
     } else if (inst == I_PLUCK) {            /* BOW: bow, octave, spread, drift: three strings, further apart with spread, thicker with the bow */
-        int32_t sep = 8 + (int32_t)c * 18 / 100, s, th = 1 + (int32_t)a * 3 / 100, px, py, k;
-        for (s = -1; s <= 1; s++) {
-            px = 4;
-            py = 50 + s * sep;
-            for (x = 1; x < 232; x++) {
-                y = 50 + s * sep - sin96(((uint32_t)x * (2u + b / 14u) * 48u / 232u + e + (uint32_t)(s + 1) * 12u) % 96u) * (8 + (int32_t)a / 5) / 100;
-                for (k = 0; k < th; k++)
-                    cv_line(px, py + k, 4 + x, y + k, k ? ACC1 : ACC3);
-                px = 4 + x;
-                py = y;
+        float sep = 8.0f + (float)c * 0.18f, amp = 6.0f + (float)a * 0.12f, cyc = 2.0f + (float)b / 14.0f;
+        int32_t s, k, th = 1 + (int32_t)a * 2 / 100;
+        static int32_t y16[232];
+        for (s = -1; s <= 1; s++)
+            for (k = 0; k < th; k++) {
+                for (x = 0; x < 232; x++) {
+                    float u = (float)x / 231.0f;
+                    y16[x] = (int32_t)((50.0f + (float)s * sep - amp * fm_sinf(6.2831853f * (cyc * u + (float)e / 100.0f + (float)(s + 1) * 0.12f))) * 16.0f) + k * 20;
+                }
+                wave_draw(y16, 232);
             }
-        }
     } else if (inst == I_PAD && sub == 0u) { /* CHOIR: detune, voices, shape, chorus: voices as dots, scattered by the detune, bigger with the shape, a halo of chorus */
         uint32_t n = 2u + b * 9u / 100u;
         for (i = 0; i < n; i++) {
@@ -283,19 +313,18 @@ static void inst_pic(const uint8_t *p, uint32_t sub)
                 cv_rect(120 - len / 2 + (int32_t)a / 8, by + 14, len, 2, ACC1);
         }
     } else if (inst == I_DRONE) {            /* GRAIN: breath, drive, drift, noise: a wave driven into clipping, noise sprinkled on it */
-        int32_t amp = 14 + (int32_t)b * 44 / 100, px = 4, py = 50;
+        float amp = 14.0f + (float)b * 0.44f;
+        static int32_t y16[232];
+        glow_at(120, 50, 12 + (int32_t)a / 10, PAL0, 150u);
         for (x = 0; x < 232; x++) {
-            y = sin96(((uint32_t)x * 4u * 96u / 232u + c / 4u * (uint32_t)x / 40u) % 96u) * amp / 100 * 2;
-            y = y > 36 ? 36 : y < -36 ? -36 : y;
-            if (x)
-                cv_line(px, py, 4 + x, 50 - y, ACC3);
-            px = 4 + x;
-            py = 50 - y;
+            float u = (float)x / 231.0f, v = amp * 2.0f * fm_sinf(6.2831853f * (4.0f * u + (float)c / 100.0f * u * u));
+            v = v > 36.0f ? 36.0f : v < -36.0f ? -36.0f : v;
+            y16[x] = (int32_t)((50.0f - v) * 16.0f);
             rng = rng * 1103515245u + 12345u;
             if ((rng >> 16) % 100u < e / 2u)
-                cv_rect(4 + x, 50 - y + (int32_t)((rng >> 8) % 9u) - 4, 1, 1, ACC2);
+                cv_rect(4 + x, (int32_t)(y16[x] >> 4) + (int32_t)((rng >> 8) % 9u) - 4, 1, 1, ACC2);
         }
-        glow_at(120, 50, 12 + (int32_t)a / 10, PAL0, 150u);
+        wave_draw(y16, 232);
     } else if (inst == I_TEXTURE && sub == 0u) { /* WEATHER: color, width, gust, depth: clouds, in layers, spread by the gust */
         uint32_t n = 1u + e * 3u / 100u;
         for (i = 0; i < n; i++)
@@ -346,7 +375,7 @@ static void bell_ground(void)
 {
     int32_t gy;
     for (gy = 0; gy < 100; gy++)
-        cv_rect(0, gy, 240, 1, mixc(PAL6, PAL4, (uint32_t)gy));
+        cv_rect(0, gy, 240, 1, mixc(GND_A, GND_B, (uint32_t)gy));
 }
 /* the four stages of an envelope over 232 columns: the curve, a grid, the stage dividers, a node at each corner, A D S R over each stage */
 static void env_pic(uint32_t a, uint32_t dc, uint32_t s, uint32_t r, uint32_t scale, uint32_t body)
@@ -500,7 +529,7 @@ static void fx_sync_draw(void)
     uint32_t dl_px = (uint32_t)(fx_delay_seconds() * 232.0f / 1.6f + 0.5f);   /* the line shows 1.6 seconds */
     char t[16];
     for (gy = 0; gy < 100; gy++)
-        cv_rect(0, gy, 240, 1, mixc(PAL6, PAL4, (uint32_t)gy));
+        cv_rect(0, gy, 240, 1, mixc(GND_A, GND_B, (uint32_t)gy));
     beat_px = (uint32_t)(60.0f * 232.0f / 1.6f / (float)sc.gp[GP_TEMPO] + 0.5f);
     if (beat_px >= 6u)
         for (x = 4; x < 236; x += (int32_t)beat_px)
@@ -594,7 +623,7 @@ middle:
         {
             int32_t gy;
             for (gy = 0; gy < 98; gy++)
-                cv_rect(0, gy, 240, 1, mixc(PAL6, PAL4, (uint32_t)gy * 100u / 98u));
+                cv_rect(0, gy, 240, 1, mixc(GND_A, GND_B, (uint32_t)gy * 100u / 98u));
         }
         for (k = 0; k < NTRK; k++) {
             int32_t x = 4 + (int32_t)k * 39, h = (int32_t)sc.tp[k][TP_LEVEL] * 56 / 100;
@@ -650,7 +679,7 @@ middle:
             int32_t gx, gy;
             d3_init();
             for (gy = 0; gy < 122; gy++)
-                cv_rect(0, gy, 240, 1, mixc(PAL6, PAL4, (uint32_t)gy * 100u / 122u));
+                cv_rect(0, gy, 240, 1, mixc(GND_A, GND_B, (uint32_t)gy * 100u / 122u));
             for (gy = cy - r - 10; gy <= cy + r + 10; gy++)
                 for (gx = cx - r - 10; gx <= cx + r + 10; gx++) {
                     int32_t ddx = gx - cx, ddy = gy - cy;
@@ -737,7 +766,7 @@ middle:
         {   /* the new style: an indigo ground, active cells glow, the one playing is white */
             int32_t gy;
             for (gy = 0; gy < 100; gy++)
-                cv_rect(0, gy, 240, 1, mixc(PAL6, PAL4, (uint32_t)gy));
+                cv_rect(0, gy, 240, 1, mixc(GND_A, GND_B, (uint32_t)gy));
         }
         for (k = 0; k < 16u; k++) {
             int32_t x = 8 + (int32_t)k * 14, deg = -1, h = -1, act = 0, hh;
@@ -868,7 +897,7 @@ middle:
         {
             int32_t gy;
             for (gy = 0; gy < 100; gy++)
-                cv_rect(0, gy, 240, 1, mixc(PAL6, PAL4, (uint32_t)gy));
+                cv_rect(0, gy, 240, 1, mixc(GND_A, GND_B, (uint32_t)gy));
         }
         for (k = 0; k < NTRK; k++) {
             int32_t y = (int32_t)k * 20 + 1, xx;
