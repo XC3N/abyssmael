@@ -53,6 +53,10 @@ shot bell_strike.png
 spin PRESET 1
 wait 40
 shot bell_filter.png
+spin K2 40
+wait 10
+shot bell_filter_res.png
+spin K2 -40
 tapkey b1
 wait 40
 expect track 1

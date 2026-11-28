@@ -13,8 +13,8 @@
 #define PAL9 RGB(77, 25, 77)
 /* the ground of the pictures: much darker than the palette's indigo, because the panel lifts dark colours a long way (a photo of
  * PAL6 to PAL4 on the device showed a pale blue) */
-#define GND_A RGB(8, 8, 20)
-#define GND_B RGB(6, 20, 28)
+#define GND_A RGB(3, 3, 10)
+#define GND_B RGB(2, 9, 14)
 #define ACC1 RGB(19, 111, 99)
 #define ACC2 RGB(34, 170, 161)
 #define ACC3 RGB(76, 224, 210)
@@ -128,8 +128,10 @@ static void glow_at(int32_t cx, int32_t cy, int32_t rad, uint16_t col, uint32_t 
         for (x = -rad; x <= rad; x++) {
             uint32_t d2 = (uint32_t)(x * x + y * y);
             if (d2 < r2) {
-                uint32_t q = (r2 - d2) * 255u / r2;
-                light_px(cx + x, cy + y, q * q / 255u * amt / 255u, cr, cg, cb);
+                static const int8_t BY[16] = {-6, 2, -4, 4, 6, -2, 8, 0, -3, 5, -5, 3, 9, 1, 7, -1};   /* 4x4 Bayer: no banding in the fall-off */
+                uint32_t q = (r2 - d2) * 255u / r2, l = q * q / 255u * amt / 255u;
+                int32_t dl = (int32_t)l + (l ? BY[((cy + y) & 3) * 4 + ((cx + x) & 3)] : 0);
+                light_px(cx + x, cy + y, dl < 0 ? 0u : (uint32_t)dl, cr, cg, cb);
             }
         }
 }
@@ -230,12 +232,23 @@ static void wave_draw(const int32_t *y16, uint32_t n)
 /* ---- the other instruments' EDIT 1 and 2: one picture each, from the four values (the bell's are in bell_draw) ---- */
 static int32_t sin96(uint32_t i) { return SIN96[(i + 72u) % 96u]; }
 static int32_t cos96(uint32_t i) { return SIN96[i % 96u]; }
-static void dot_ring(int32_t cx, int32_t cy, int32_t rx, int32_t ry, uint16_t c, uint32_t wob)   /* an ellipse of dots, wob: a ripple 0..100 */
+/* a point at (x16, y16)/16 splatted over four pixels (bilinear), added as light: the building block of smooth rings */
+static void splat(int32_t x16, int32_t y16, uint32_t k, uint32_t cr, uint32_t cg, uint32_t cb)
 {
-    uint32_t a;
-    for (a = 0; a < 96u; a++) {
-        int32_t w = wob ? sin96(a * 6u) * (int32_t)wob / 2000 : 0;
-        cv_rect(cx + (rx + w) * sin96(a) / 100, cy - (ry + w) * cos96(a) / 100, 2, 2, c);
+    int32_t x = x16 >> 4, y = y16 >> 4, fx = x16 & 15, fy = y16 & 15;
+    light_px(x, y, k * (uint32_t)((16 - fx) * (16 - fy)) >> 8, cr, cg, cb);
+    light_px(x + 1, y, k * (uint32_t)(fx * (16 - fy)) >> 8, cr, cg, cb);
+    light_px(x, y + 1, k * (uint32_t)((16 - fx) * fy) >> 8, cr, cg, cb);
+    light_px(x + 1, y + 1, k * (uint32_t)(fx * fy) >> 8, cr, cg, cb);
+}
+/* an ellipse drawn smooth: sub-pixel points close enough to join, splatted over four pixels each; wob: a ripple 0..100.
+ * c is a 565 colour, taken as the light to add. */
+static void dot_ring(int32_t cx, int32_t cy, int32_t rx, int32_t ry, uint16_t c, uint32_t wob)
+{
+    uint32_t a, n = 96u + (uint32_t)(rx > ry ? rx : ry) * 3u, cr = c >> 11, cg = (c >> 5) & 63u, cb = c & 31u;
+    for (a = 0; a < n; a++) {
+        float th = (float)a * 6.2831853f / (float)n, w = wob ? fm_sinf(th * 6.0f) * (float)wob * 0.05f : 0.0f;
+        splat((int32_t)(((float)cx + ((float)rx + w) * fm_sinf(th)) * 16.0f), (int32_t)(((float)cy - ((float)ry + w) * fm_sinf(th + 1.5707963f)) * 16.0f), 150u, cr, cg, cb);
     }
 }
 static void string_line(const uint32_t *h, int32_t cy, int32_t amp, uint32_t nh, uint32_t pos, uint32_t damp, uint16_t col)
@@ -481,8 +494,8 @@ static void filter_pic(uint32_t cut, uint32_t res, uint32_t keyt, uint32_t amt)
             float u = ((float)x + 4.0f) / fc, d = 1.0f - u * u;
             float m = 1.0f / amb_sqrt(d * d + u * u / (q * q));
             int32_t y16, a, yb;
-            if (m > 4.0f) m = 4.0f;
-            y16 = (int32_t)((86.0f - 22.0f * m) * 16.0f);
+            if (m > 1.5f) m = 1.5f + (m - 1.5f) * 0.35f;      /* a tall resonance is squeezed, not cut off at the top */
+            y16 = (int32_t)((88.0f - 16.0f * m) * 16.0f);
             if (u > 1.0f) {                       /* the slope falls faster: pull it down a touch so it leaves the picture */
                 y16 += (int32_t)((u - 1.0f) * 220.0f);
             }
