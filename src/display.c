@@ -31,7 +31,7 @@ static uint16_t hit_colour(uint32_t h, uint32_t n)
 
 static uint32_t bell_page(uint32_t pg)
 {
-    return (pg == PG_EDIT || pg == PG_ENV) && sc.tp[cur_trk][TP_INST] == I_BELL;
+    return pg == PG_EDIT || pg == PG_ENV;
 }
 static void bell_dot(int32_t cx, int32_t cy, int32_t r, uint32_t a, uint16_t c)   /* a point on a circle, a in 0..95 */
 {
@@ -187,6 +187,124 @@ static void bell_metal(const uint8_t *p)
     }
 }
 
+/* ---- the other instruments' EDIT 1 and 2: one picture each, from the four values (the bell's are in bell_draw) ---- */
+static int32_t sin96(uint32_t i) { return SIN96[(i + 72u) % 96u]; }
+static int32_t cos96(uint32_t i) { return SIN96[i % 96u]; }
+static void dot_ring(int32_t cx, int32_t cy, int32_t rx, int32_t ry, uint16_t c, uint32_t wob)   /* an ellipse of dots, wob: a ripple 0..100 */
+{
+    uint32_t a;
+    for (a = 0; a < 96u; a++) {
+        int32_t w = wob ? sin96(a * 6u) * (int32_t)wob / 2000 : 0;
+        cv_rect(cx + (rx + w) * sin96(a) / 100, cy - (ry + w) * cos96(a) / 100, 2, 2, c);
+    }
+}
+static void string_line(const uint32_t *h, int32_t cy, int32_t amp, uint32_t nh, uint32_t pos, uint32_t damp, uint16_t col)
+{
+    int32_t x, py = cy, px = 4;
+    for (x = 0; x < 232; x++) {
+        int32_t sum = 0, y;
+        uint32_t m;
+        for (m = 1; m <= nh; m++) {
+            int32_t pk = sin96((m * (uint32_t)(pos * 48u / 100u + 1u) * 2u) % 96u) * 100 / 100;   /* the pluck point's weight on this harmonic */
+            sum += sin96((m * 48u * (uint32_t)x / 232u) % 96u) * (pk < 0 ? -pk : pk) / (int32_t)m / 100;
+        }
+        y = cy - sum * amp / 100 * (100 - (int32_t)damp * 85 / 100 * x / 232) / 100;
+        if (x)
+            cv_line(px, py, 4 + x, y, col);
+        px = 4 + x;
+        py = y;
+    }
+    (void)h;
+}
+static void inst_pic(const uint8_t *p, uint32_t sub)
+{
+    uint32_t inst = p[TP_INST], a = p[TP_P0 + sub * 4u], b = p[TP_P1 + sub * 4u], c = p[TP_P2 + sub * 4u], e = p[TP_P3 + sub * 4u], i, rng = 12345u + inst * 977u + sub * 31u;
+    int32_t gy, x, y;
+    for (gy = 0; gy < 100; gy++)
+        cv_rect(0, gy, 240, 1, mixc(PAL6, PAL4, (uint32_t)gy));
+    if (inst == I_PLUCK && sub == 0u) {      /* STRING: damp, bright, sustain, position: a standing wave, the pluck point marked */
+        uint32_t nh = 1u + b * 6u / 100u;
+        string_line(0, 50, 8 + (int32_t)c * 36 / 100, nh, e, a, PAL0);
+        cv_rect(0, 0, 0, 0, 0);
+        string_line(0, 49, 8 + (int32_t)c * 36 / 100, nh, e, a, ACC3);
+        x = 4 + (int32_t)e * 224 / 100;
+        glow_at(x, 50, 12, ACC3, 200u);
+        disc_at(x, 50, 3, C_WHITE);
+    } else if (inst == I_PLUCK) {            /* BOW: bow, octave, spread, drift: three strings, further apart with spread, thicker with the bow */
+        int32_t sep = 8 + (int32_t)c * 18 / 100, s, th = 1 + (int32_t)a * 3 / 100, px, py, k;
+        for (s = -1; s <= 1; s++) {
+            px = 4;
+            py = 50 + s * sep;
+            for (x = 1; x < 232; x++) {
+                y = 50 + s * sep - sin96(((uint32_t)x * (2u + b / 14u) * 48u / 232u + e + (uint32_t)(s + 1) * 12u) % 96u) * (8 + (int32_t)a / 5) / 100;
+                for (k = 0; k < th; k++)
+                    cv_line(px, py + k, 4 + x, y + k, k ? ACC1 : ACC3);
+                px = 4 + x;
+                py = y;
+            }
+        }
+    } else if (inst == I_PAD && sub == 0u) { /* CHOIR: detune, voices, shape, chorus: voices as dots, scattered by the detune, bigger with the shape, a halo of chorus */
+        uint32_t n = 2u + b * 9u / 100u;
+        for (i = 0; i < n; i++) {
+            int32_t vx = 20 + (int32_t)i * 200 / (int32_t)(n - 1u), vy = 50 + ((int32_t)((i * 37u) % 11u) - 5) * (int32_t)a * 7 / 500;
+            glow_at(vx, vy, 4 + (int32_t)c / 14 + (int32_t)e / 12, ACC2, 70u + e);
+            disc_at(vx, vy, 2 + (int32_t)c / 25, i % 2u ? ACC3 : ACC2);
+        }
+    } else if (inst == I_PAD) {              /* BLOOM: harmonic, vibrato, air, width: ellipses, rippled by the vibrato, wider with the width */
+        uint32_t n = 2u + a * 6u / 100u;
+        for (i = 0; i < n; i++)
+            dot_ring(120, 50, (6 + (int32_t)i * 7) * (100 + (int32_t)e) / 100, 6 + (int32_t)i * 6, mixc(ACC3, PAL3, i * 100u / n), b);
+        glow_at(120, 50, 12, ACC2, 80u + c);
+    } else if (inst == I_DRONE && sub == 0u) { /* STACK: detune, fifth, octave, sub: four bars, each as long as its level; the detune doubles them */
+        static const uint8_t lv[4] = {100, 0, 0, 0};
+        uint32_t vals[4];
+        vals[0] = lv[0], vals[1] = b, vals[2] = c, vals[3] = e;
+        for (i = 0; i < 4u; i++) {
+            int32_t by = 12 + (int32_t)(3u - i) * 22, len = 20 + (int32_t)vals[i] * 190 / 100;
+            glow_at(120, by + 6, 12, ACC2, 40u + vals[i]);
+            cv_rect(120 - len / 2, by, len, 12, mixc(PAL0, ACC3, vals[i]));
+            if (a > 4u)
+                cv_rect(120 - len / 2 + (int32_t)a / 8, by + 14, len, 2, ACC1);
+        }
+    } else if (inst == I_DRONE) {            /* GRAIN: breath, drive, drift, noise: a wave driven into clipping, noise sprinkled on it */
+        int32_t amp = 14 + (int32_t)b * 44 / 100, px = 4, py = 50;
+        for (x = 0; x < 232; x++) {
+            y = sin96(((uint32_t)x * 4u * 96u / 232u + c / 4u * (uint32_t)x / 40u) % 96u) * amp / 100 * 2;
+            y = y > 36 ? 36 : y < -36 ? -36 : y;
+            if (x)
+                cv_line(px, py, 4 + x, 50 - y, ACC3);
+            px = 4 + x;
+            py = 50 - y;
+            rng = rng * 1103515245u + 12345u;
+            if ((rng >> 16) % 100u < e / 2u)
+                cv_rect(4 + x, 50 - y + (int32_t)((rng >> 8) % 9u) - 4, 1, 1, ACC2);
+        }
+        glow_at(120, 50, 12 + (int32_t)a / 10, PAL0, 150u);
+    } else if (inst == I_TEXTURE && sub == 0u) { /* WEATHER: color, width, gust, depth: clouds, in layers, spread by the gust */
+        uint32_t n = 1u + e * 3u / 100u;
+        for (i = 0; i < n; i++)
+            for (x = 0; x < 4; x++) {
+                rng = rng * 1103515245u + 12345u;
+                glow_at(30 + (int32_t)((rng >> 16) % 180u), 28 + (int32_t)i * 18 + ((int32_t)((rng >> 8) % 9u) - 4) * (int32_t)c / 40, 10 + (int32_t)b / 8,
+                        mixc(PAL0, ACC3, a), 120u);
+            }
+    } else {                                 /* DUST: crackle, pitched, move, hiss: specks, a few bright and pitched, streaks of the movement */
+        for (i = 0; i < 12u + a; i++) {
+            rng = rng * 1103515245u + 12345u;
+            x = 4 + (int32_t)((rng >> 16) % 230u);
+            y = 2 + (int32_t)((rng >> 8) % 96u);
+            cv_rect(x, y, 1 + (int32_t)(b > 50u && i % 5u == 0u), 1, i % 7u ? ACC2 : ACC3);
+            if (b > 20u && i % 9u == 0u)
+                glow_at(x, y, 6, ACC2, b);
+            if (c > 20u && i % 4u == 0u)
+                cv_rect(x, y, 1 + (int32_t)c / 6, 1, PAL0);
+        }
+        for (i = 0; i < e / 2u; i++) {
+            rng = rng * 1103515245u + 12345u;
+            cv_rect((int32_t)((rng >> 16) % 236u), (int32_t)((rng >> 8) % 100u), 1, 1, PAL3);
+        }
+    }
+}
 static void bell_draw(uint32_t pg, uint32_t sub)
 {
     const uint8_t *p = sc.tp[cur_trk];
@@ -204,6 +322,8 @@ static void bell_draw(uint32_t pg, uint32_t sub)
             pt[x] = (uint8_t)(pt[x] * (12 + (int32_t)p[TP_FENV] * 88 / 100) / 100);
         bell_graph(pt, 96, 88, ACC1, PAL3);
         cv_rect(4, 96 - 12 * 88 / 100, 232, 1, PAL0);        /* where the filter rests */
+    } else if (sub < 2u && p[TP_INST] != I_BELL) {
+        inst_pic(p, sub);
     } else if (sub == 0u) {                  /* METAL: smooth rings and a glow, drawn pixel by pixel (see bell_metal) */
         bell_metal(p);
     } else if (sub == 1u) {                  /* STRIKE: eight partials as bars: strike the height, partial how many sound, spread the gaps, tone the colour */

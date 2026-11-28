@@ -109,7 +109,7 @@ static uint32_t page_ref(uint32_t pg, uint32_t sub, uint32_t k)
     }
     if (pg == PG_SEQ && sub > 0u)
         return MODE_REF[sc.tp[cur_trk][TP_SMODE]][k];
-    if (pg == PG_ENV && sub == 1u && sc.tp[cur_trk][TP_INST] == I_BELL) {   /* the bell: the filter's own envelope */
+    if (pg == PG_ENV && sub == 1u) {   /* the filter's own envelope */
         static const uint8_t FE[4] = {TP_FATK, TP_FDEC, TP_FSUS, TP_FREL};
         return FE[k];
     }
@@ -233,7 +233,7 @@ static void ref_turn(uint32_t ref, int32_t e)
 /* how many pages a button has now: EDIT has a third for the bell (its filter) */
 static uint32_t pg_n(uint32_t pg)
 {
-    return pg == PG_EDIT && sc.tp[cur_trk][TP_INST] == I_BELL ? 3u : PG_N[pg];
+    return pg == PG_EDIT ? 3u : PG_N[pg];
 }
 static void page_open(uint32_t pg, int sub)
 {

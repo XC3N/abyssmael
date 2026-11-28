@@ -392,3 +392,58 @@ shot fx_sync.png
 spin K1 -9
 wait 40
 expect dsync 0
+
+# the instruments EDIT 1 and 2, one picture each, then ENV and the filter
+wait 1500
+tap EDIT
+wait 40
+tapkey b1
+wait 40
+spin PRESET 1
+wait 40
+shot pluck_a.png
+spin PRESET 1
+wait 40
+shot pluck_b.png
+spin PRESET 1
+wait 40
+shot pluck_c.png
+tapkey b2
+wait 40
+spin PRESET 1
+wait 40
+shot pad_a.png
+spin PRESET 1
+wait 40
+shot pad_b.png
+spin PRESET 1
+wait 40
+shot pad_c.png
+tapkey b3
+wait 40
+spin PRESET 1
+wait 40
+shot drone_a.png
+spin PRESET 1
+wait 40
+shot drone_b.png
+spin PRESET 1
+wait 40
+shot drone_c.png
+tapkey b4
+wait 40
+spin PRESET 1
+wait 40
+shot texture_a.png
+spin PRESET 1
+wait 40
+shot texture_b.png
+spin PRESET 1
+wait 40
+shot texture_c.png
+tap ENV
+wait 40
+shot texture_env1.png
+spin PRESET 1
+wait 40
+shot texture_env2.png
