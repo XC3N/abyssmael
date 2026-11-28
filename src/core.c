@@ -31,7 +31,7 @@ static uint32_t st_cnt, st_n;
 
 static void stress_tick(uint32_t n)
 {
-    static const uint8_t BASE[NTRK] = {36, 48, 55, 60, 64, 67};
+    static const uint8_t BASE[6] = {36, 48, 55, 60, 64, 67};   /* (indexed modulo 6: any NTRK up to 6 works) */
     uint32_t t, j;
     if (!amb_stress) {
         st_cnt = 0;
@@ -41,7 +41,7 @@ static void stress_tick(uint32_t n)
     if (st_cnt == 0u) {
         for (t = 0; t < NTRK; t++)
             for (j = 0; j < 3u; j++)
-                voice_start(t, (int32_t)BASE[t] + (int32_t)((st_n + j) % 3u) * 5, 0.8f, (int32_t)(3.5f * SR));
+                voice_start(t, (int32_t)BASE[t % 6u] + (int32_t)((st_n + j) % 3u) * 5, 0.8f, (int32_t)(3.5f * SR));
         st_n++;
     }
     st_cnt += n;
@@ -118,7 +118,11 @@ void app_render(int32_t *lr, uint32_t n, uint32_t master_q12)
         lr += 2u * b;
         n -= b;
     }
-    prof_add(4, 100.0f * (float)(plat_ticks24() - t0) / ((float)n0 * (24000000.0f / SR)));
+    {
+        float pct = 100.0f * (float)(plat_ticks24() - t0) / ((float)n0 * (24000000.0f / SR));
+        prof_add(4, pct);
+        engines_load((uint32_t)pct);
+    }
 }
 
 void app_panic(void)

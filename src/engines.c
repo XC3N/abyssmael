@@ -14,6 +14,25 @@ voice_t vc[NVOICE];
 static int16_t ks_buf[NVOICE][KS_LEN] PLAT_POOL;
 static uint32_t voice_age;
 
+/* The CPU guard (h1's idea, MIT): when the render's load stays over 88% of the block time, fewer voices may sound at once
+ * (a new note takes the quietest, and what is releasing dies in a few ms); back under 60% they return one at a time. */
+static volatile uint32_t vcap = VOICE_CAP;
+static uint8_t fast_rel;
+static float load_s;
+static uint32_t load_t;
+void engines_load(uint32_t pct)
+{
+    load_s += ((float)(pct > 400u ? 400u : pct) - load_s) * 0.05f;
+    if (++load_t < 48u)
+        return;
+    load_t = 0;
+    if (load_s > 88.0f && vcap > 4u)
+        vcap--;
+    else if (load_s < 60.0f && vcap < VOICE_CAP)
+        vcap++;
+}
+uint32_t engines_vcap(void) { return vcap; }
+
 static tblk_t tb[NTRK];
 
 void voice_start(uint32_t t, int32_t note, float vel, int32_t gate)
@@ -39,7 +58,7 @@ void voice_start_c(uint32_t t, int32_t note, int32_t cents, float vel, int32_t g
         for (i = t * VPT; i < (t + 1u) * VPT; i++)
             if (vc[i].age < vc[best].age)
                 best = i;
-    } else if (nsound >= VOICE_CAP) {                /* over the budget: steal the quietest anywhere */
+    } else if (nsound >= vcap) {                /* over the budget: steal the quietest anywhere */
         float lo = 9.0f;
         for (i = 0; i < NVOICE; i++)
             if (vc[i].on && vc[i].env < lo) {
@@ -100,6 +119,31 @@ void voice_release_note(uint32_t t, int32_t note)
             vc[i].stage = 4;
 }
 
+/* sin(2 pi t) from a 2048-entry table with a linear blend (error about 1e-6), t in turns, any value: about a third cheaper than
+ * the polynomial. The idea is h1's tsin (MIT). The table is filled once, on the first block (sin_ready). */
+#define SIN_N 2048u
+static float sin_tab[SIN_N + 1u] PLAT_POOL;
+static uint8_t sin_ready;
+static void sin_fill(void)
+{
+    uint32_t i;
+    for (i = 0; i <= SIN_N; i++)
+        sin_tab[i] = fm_sin_turns((float)i * (1.0f / (float)SIN_N));
+    sin_ready = 1;
+}
+static inline __attribute__((always_inline)) float am_sin(float t)
+{
+    int32_t k = (int32_t)t, i;
+    float x;
+    if ((float)k > t)
+        k--;
+    x = (t - (float)k) * (float)SIN_N;
+    i = (int32_t)x;
+    x -= (float)i;
+    i &= (int32_t)SIN_N - 1;
+    return sin_tab[i] + (sin_tab[i + 1] - sin_tab[i]) * x;
+}
+
 /* tanh as a [5/4] Pade, one divide and no exp2: the input is held to +-3.3 where the fit is at 0.9967 against tanh's 0.9973
  * (error under 0.002 everywhere, far less below 2). Used by the drone's saturation instead of fm_tanhf (exp2 and a divide). */
 static inline __attribute__((always_inline)) float am_tanh(float x)
@@ -126,18 +170,18 @@ static inline __attribute__((always_inline)) float voice_osc(voice_t *v, const t
         v->ph[1] -= (float)(int32_t)v->ph[1];
         v->ph[2] -= (float)(int32_t)v->ph[2];
         v->ph[3] -= (float)(int32_t)v->ph[3];
-        s0 = fm_sin_turns(v->ph[0]);
-        s1 = fm_sin_turns(v->ph[1]);
-        o = s0 + s1 + p[1] * 1.2f * fm_sin_turns(v->ph[2]) + p[2] * 0.8f * fm_sin_turns(2.0f * v->ph[0])
-            + p[3] * 1.4f * fm_sin_turns(v->ph[3]);
+        s0 = am_sin(v->ph[0]);
+        s1 = am_sin(v->ph[1]);
+        o = s0 + s1 + p[1] * 1.2f * am_sin(v->ph[2]) + p[2] * 0.8f * am_sin(2.0f * v->ph[0])
+            + p[3] * 1.4f * am_sin(v->ph[3]);
         v->x1 += (am_rnds() - v->x1) * 0.02f;          /* noise, softened */
         o += p[7] * 1.5f * v->x1;
         o = am_tanh(o * (0.35f + 1.2f * p[5])) * 1.3f;
-        o *= 1.0f - p[4] * 0.6f * (0.5f + 0.5f * fm_sin_turns(v->x3));
+        o *= 1.0f - p[4] * 0.6f * (0.5f + 0.5f * am_sin(v->x3));
         break;
     }
     case I_PAD: {
-        float det = 0.001f + p[0] * 0.01f * (1.0f + p[3] * 0.5f * fm_sin_turns(v->x3)), sh = p[2] * 0.45f;
+        float det = 0.001f + p[0] * 0.01f * (1.0f + p[3] * 0.5f * am_sin(v->x3)), sh = p[2] * 0.45f;
         float a, c, d;
         v->ph[0] += inc;
         v->ph[1] += inc * (1.0f + det);
@@ -147,10 +191,10 @@ static inline __attribute__((always_inline)) float voice_osc(voice_t *v, const t
         v->ph[1] -= (float)(int32_t)v->ph[1];
         v->ph[2] -= (float)(int32_t)v->ph[2];
         v->ph[3] -= (float)(int32_t)v->ph[3];
-        a = fm_sin_turns(v->ph[0]);
-        c = fm_sin_turns(v->ph[1] + sh * fm_sin_turns(v->ph[1]));
-        d = fm_sin_turns(v->ph[2] + sh * fm_sin_turns(v->ph[2]));
-        o = a * (1.0f - p[1] * 0.5f) + (c + d) * (0.3f + 0.5f * p[1]) + p[4] * 0.6f * fm_sin_turns(v->ph[3]);
+        a = am_sin(v->ph[0]);
+        c = am_sin(v->ph[1] + sh * am_sin(v->ph[1]));
+        d = am_sin(v->ph[2] + sh * am_sin(v->ph[2]));
+        o = a * (1.0f - p[1] * 0.5f) + (c + d) * (0.3f + 0.5f * p[1]) + p[4] * 0.6f * am_sin(v->ph[3]);
         v->x1 += (am_rnds() - v->x1) * 0.3f;
         o += p[6] * 0.4f * v->x1;
         o *= 0.6f;
@@ -168,9 +212,9 @@ static inline __attribute__((always_inline)) float voice_osc(voice_t *v, const t
         v->ph[2] -= (float)(int32_t)v->ph[2];
         v->ph[3] -= (float)(int32_t)v->ph[3];
         ix = (0.2f + p[1] * 4.0f) * v->ienv * (0.4f + p[7]);
-        m = ix * fm_sin_turns(v->ph[1]) * 0.159f;
-        o = fm_sin_turns(v->ph[0] + m) + p[3] * 0.7f * fm_sin_turns(v->ph[2] + m)
-            + p[5] * 0.5f * v->ienv * fm_sin_turns(v->ph[3]);
+        m = ix * am_sin(v->ph[1]) * 0.159f;
+        o = am_sin(v->ph[0] + m) + p[3] * 0.7f * am_sin(v->ph[2] + m)
+            + p[5] * 0.5f * v->ienv * am_sin(v->ph[3]);
         if (v->x2 > 1e-4f) {                            /* the strike: a burst of noise */
             o += am_rnds() * v->x2 * p[4] * 2.0f;
             v->x2 *= 0.995f;
@@ -301,6 +345,7 @@ static inline __attribute__((always_inline)) void voice_run(voice_t *v, const tb
     float pn = fm_clampf(b->pan + v->pan, -1.0f, 1.0f), gl = 0.5f - 0.5f * pn, gr = 0.5f + 0.5f * pn;
     float dsl = gl * b->dsend, dsr = gr * b->dsend, rsd = b->rsend;
     float e = v->env, s1 = v->s1, s2 = v->s2, lv = b->lvl0 * v->vel, dlv = b->dlvl * v->vel, vel_l = 0.0f;
+    float rk = fast_rel && b->rel_k > 0.995f ? 0.995f : b->rel_k;   /* the CPU guard: a release in about 5 ms */
     uint32_t i, stage = v->stage;
     (void)vel_l;
     for (i = 0; i < n; i++) {
@@ -309,7 +354,7 @@ static inline __attribute__((always_inline)) void voice_run(voice_t *v, const tb
         case 1: e += b->att; if (e >= 1.0f) { e = 1.0f; stage = 2; } break;
         case 2: e = b->sus + (e - b->sus) * b->dec_k; if (e - b->sus < 0.001f) stage = 3; break;
         case 3: e = b->sus; if (e < 0.0005f) v->on = 0; break;
-        default: e *= b->rel_k; if (e < 0.0002f) v->on = 0; break;
+        default: e *= rk; if (e < 0.0002f) v->on = 0; break;
         }
         o = voice_osc(v, b, inc, inst);
         v3 = o - s2;                                  /* the filter (low-pass) */
@@ -367,7 +412,12 @@ static void (*const voices_job_far)(uint32_t) = voices_job;
 /* once a block, before the voices: each track's block values, then each sounding voice's filter, pitch and clocks */
 void engines_block(uint32_t n)
 {
-    uint32_t t, k;
+    uint32_t t, k, nsnd = 0;
+    if (!sin_ready)
+        sin_fill();
+    for (k = 0; k < NVOICE; k++)
+        nsnd += vc[k].on;
+    fast_rel = vcap < VOICE_CAP && nsnd > vcap;
     for (t = 0; t < NTRK; t++) {
         track_block(t, n);
         trk_active[t] = 0;

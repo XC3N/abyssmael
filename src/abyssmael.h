@@ -18,7 +18,7 @@
 #define NTRK 5u
 #define VPT 4u                           /* voices per track */
 #define NVOICE (NTRK * VPT)
-#define VOICE_CAP 16u                    /* sounding at once, all tracks: the CPU's budget */
+#define VOICE_CAP 12u                    /* sounding at once, all tracks: the CPU's budget */
 
 /* ------------------------------------------------------------------ tables --- */
 enum { I_DRONE, I_PAD, I_BELL, I_PLUCK, I_TEXTURE, NINST };
@@ -291,6 +291,8 @@ void voice_release_note(uint32_t t, int32_t note);
 void engines_block(uint32_t n);                   /* each track's and voice's values for a block */
 void engines_run(uint32_t n);                     /* the voices, both cores, into mx */
 void engines_flush(void);
+void engines_load(uint32_t pct);                  /* the render's load in % of a block: the CPU guard lowers or restores the voice cap */
+uint32_t engines_vcap(void);                      /* the voice cap now (VOICE_CAP unless the guard is in) */
 void engines_panic(void);
 /* --- fx.c */
 void fx_block(int32_t *lr, uint32_t n, uint32_t master_q12);   /* mx through delay, reverb and AGE to the output */
