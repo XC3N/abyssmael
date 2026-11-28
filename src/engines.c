@@ -18,6 +18,11 @@ static tblk_t tb[NTRK];
 
 void voice_start(uint32_t t, int32_t note, float vel, int32_t gate)
 {
+    voice_start_c(t, note, 0, vel, gate);
+}
+
+void voice_start_c(uint32_t t, int32_t note, int32_t cents, float vel, int32_t gate)
+{
     uint32_t i, best = NVOICE, nsound = 0, oldest = NVOICE;
     uint32_t inst = sc.tp[t][TP_INST];
     voice_t *v;
@@ -52,7 +57,7 @@ void voice_start(uint32_t t, int32_t note, float vel, int32_t gate)
     v->note = (int16_t)note;
     v->gate = gate;
     v->vel = vel;
-    v->inc = note_inc((float)note, tune);
+    v->inc = note_inc((float)note + (float)cents * 0.01f, tune);
     v->pan = 0.0f;
     v->env = 0.0f;
     v->ienv = 1.0f;

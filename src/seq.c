@@ -11,6 +11,10 @@ static kev_t kq[32];
 static volatile uint32_t kq_w, kq_r;
 void key_event(uint32_t trk, int32_t note, uint32_t vel, uint32_t on)
 {
+    key_event_c(trk, note, 0, vel, on);
+}
+void key_event_c(uint32_t trk, int32_t note, int32_t cents, uint32_t vel, uint32_t on)
+{
     uint32_t w = kq_w;
     if (note < 12 || note > 115 || w - kq_r >= 32u)
         return;
@@ -18,6 +22,7 @@ void key_event(uint32_t trk, int32_t note, uint32_t vel, uint32_t on)
     kq[w & 31u].note = (uint8_t)note;
     kq[w & 31u].vel = (uint8_t)vel;
     kq[w & 31u].on = (uint8_t)on;
+    kq[w & 31u].cents = (int8_t)cents;
     kq_w = w + 1u;
 }
 
@@ -25,15 +30,26 @@ void key_event(uint32_t trk, int32_t note, uint32_t vel, uint32_t on)
 static float clk_left;                   /* samples to the next sixteenth */
 static uint32_t clk_tick;
 motif_t mo[NTRK];
+static int8_t hcent[NTRK][8];            /* a held note's cents above its MIDI note */
 static uint8_t held[NTRK][8], hlife[NTRK][8], held_n[NTRK], arp_i[NTRK];   /* hlife: ticks left, 0 = until the key is let go */
 static int8_t arp_dir[NTRK] = {1, 1, 1, 1, 1, 1};
 
-int32_t degree_note(int32_t deg, int32_t oct)
+/* a scale degree's pitch in cents from C0's octave base: degrees past the scale's top go up an octave each */
+static int32_t degree_pitch(int32_t deg, int32_t oct)
 {
     uint32_t sci = sc.gp[GP_SCALE], len = SCALE_LEN[sci];
     int32_t o = deg >= 0 ? deg / (int32_t)len : -((-deg + (int32_t)len - 1) / (int32_t)len);
     int32_t d = deg - o * (int32_t)len;
-    return 12 * (oct + o + 1) + sc.gp[GP_KEY] + SCALE_DEG[sci][d];
+    return 100 * (12 * (oct + o + 1) + (int32_t)sc.gp[GP_KEY]) + SCALE_CENT[sci][d];
+}
+int32_t degree_note(int32_t deg, int32_t oct)
+{
+    return (degree_pitch(deg, oct) + 50) / 100;
+}
+int32_t degree_cents(int32_t deg, int32_t oct)
+{
+    int32_t c = degree_pitch(deg, oct);
+    return c - 100 * ((c + 50) / 100);
 }
 
 uint32_t track_audible(uint32_t t)
@@ -82,17 +98,17 @@ static uint32_t cond_ok(uint32_t t, uint32_t c, uint32_t pass)
 }
 
 /* a sequenced note: it sounds, or with the arpeggio fed from the sequencer it goes into the arpeggio's list for its gate */
-static void held_add(uint32_t t, uint32_t note, uint32_t life);
-static void seq_note(uint32_t t, int32_t note, float vel, float gate_s, float tick_s)
+static void held_add(uint32_t t, uint32_t note, int32_t cents, uint32_t life);
+static void seq_note(uint32_t t, int32_t note, int32_t cents, float vel, float gate_s, float tick_s)
 {
     const uint8_t *p = sc.tp[t];
     last_play[t] = clk_tick + 1u;
     if (p[TP_ARPON] && p[TP_ARPSRC] != 0u) {
         uint32_t life = (uint32_t)(gate_s / tick_s + 0.999f);
-        held_add(t, (uint32_t)note, life < 1u ? 1u : life > 255u ? 255u : life);
+        held_add(t, (uint32_t)note, cents, life < 1u ? 1u : life > 255u ? 255u : life);
         return;
     }
-    voice_start(t, note, vel, (int32_t)(gate_s * SR));
+    voice_start_c(t, note, cents, vel, (int32_t)(gate_s * SR));
 }
 
 /* EUCL DRIFT, once a pass: the hits or the rotation wander by one, and now and then step back toward the set values */
@@ -188,7 +204,7 @@ static void pat_step(uint32_t t, float tick_s, uint32_t rt, int32_t oct)
     {
         float gate = tick_s * (float)rt * (0.05f + 3.95f * pct(p[TP_GATE]) * pct(p[TP_GATE]));
         float vel = 1.0f - pct(p[TP_ACCENT]) * am_rndf() * 0.7f;
-        seq_note(t, degree_note(deg, oct), vel, gate, tick_s);
+        seq_note(t, degree_note(deg, oct), degree_cents(deg, oct), vel, gate, tick_s);
     }
 }
 
@@ -223,7 +239,7 @@ static void gen_step(uint32_t t, float tick_s)
     {
         float gate = tick_s * (float)rt * (0.05f + 3.95f * pct(p[TP_GATE]) * pct(p[TP_GATE]));
         float vel = 1.0f - pct(p[TP_ACCENT]) * am_rndf() * 0.7f;
-        seq_note(t, degree_note(deg, oct), vel, gate, tick_s);
+        seq_note(t, degree_note(deg, oct), degree_cents(deg, oct), vel, gate, tick_s);
     }
 }
 
@@ -264,14 +280,14 @@ static void arp_play(uint32_t t, float tick_s, uint32_t rt, uint32_t n)
         break;
     default: k = am_rnd() % n; break;
     }
-    voice_start(t, held[t][k], 0.9f, (int32_t)(tick_s * (float)rt * (0.1f + 1.4f * pct(p[TP_ARPGATE])) * SR));
+    voice_start_c(t, held[t][k], hcent[t][k], 0.9f, (int32_t)(tick_s * (float)rt * (0.1f + 1.4f * pct(p[TP_ARPGATE])) * SR));
 }
 
-static void held_add(uint32_t t, uint32_t note, uint32_t life)
+static void held_add(uint32_t t, uint32_t note, int32_t cents, uint32_t life)
 {
     uint32_t i, j;
     for (i = 0; i < held_n[t]; i++)
-        if (held[t][i] == note) {
+        if (held[t][i] == note && hcent[t][i] == cents) {
             if (hlife[t][i] && life > hlife[t][i])    /* a sequenced note again: keep it longer; a held key stays held */
                 hlife[t][i] = (uint8_t)life;
             else if (!life)
@@ -283,8 +299,9 @@ static void held_add(uint32_t t, uint32_t note, uint32_t life)
     for (i = 0; i < held_n[t] && held[t][i] < note; i++)
         ;
     for (j = held_n[t]; j > i; j--)
-        held[t][j] = held[t][j - 1], hlife[t][j] = hlife[t][j - 1];
+        held[t][j] = held[t][j - 1], hlife[t][j] = hlife[t][j - 1], hcent[t][j] = hcent[t][j - 1];
     held[t][i] = (uint8_t)note;
+    hcent[t][i] = (int8_t)cents;
     hlife[t][i] = (uint8_t)life;
     held_n[t]++;
 }
@@ -294,7 +311,7 @@ static void held_remove(uint32_t t, uint32_t note)
     for (i = 0; i < held_n[t]; i++)
         if (held[t][i] == note) {
             for (j = i; j + 1u < held_n[t]; j++)
-                held[t][j] = held[t][j + 1], hlife[t][j] = hlife[t][j + 1];
+                held[t][j] = held[t][j + 1], hlife[t][j] = hlife[t][j + 1], hcent[t][j] = hcent[t][j + 1];
             held_n[t]--;
             return;
         }
@@ -305,13 +322,13 @@ static void key_play(const kev_t *e)
     uint32_t t = e->trk;
     if (sc.tp[t][TP_ARPON] && sc.tp[t][TP_ARPSRC] != 1u) {   /* with the arpeggio, keys only add notes to its list */
         if (e->on)
-            held_add(t, e->note, 0u);
+            held_add(t, e->note, e->cents, 0u);
         else
             held_remove(t, e->note);
         return;
     }
     if (e->on)
-        voice_start(t, e->note, (float)e->vel / 127.0f, -1);
+        voice_start_c(t, e->note, e->cents, (float)e->vel / 127.0f, -1);
     else
         voice_release_note(t, e->note);
 }
@@ -353,6 +370,7 @@ void seq_block(uint32_t n)
             e.trk = (uint8_t)ch;
             e.note = (uint8_t)d1;
             e.vel = (uint8_t)d2;
+            e.cents = 0;
             if (st == 0x90u && d2) {
                 e.on = 1;
                 key_play(&e);
