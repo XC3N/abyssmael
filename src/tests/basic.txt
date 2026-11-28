@@ -206,20 +206,28 @@ tapkey b4
 wait 40
 expect mutes 18
 shot mix_mute.png
-tapkey b6
+tapkey b7
 wait 40
 expect mix_mode 1
 tapkey b3
 wait 40
 expect solos 8
+tapkey b5
+wait 40
+expect mix_mode 2
+tapkey b2
+wait 40
+expect track 2
+tapkey b7
+wait 40
 shot mix_solo.png
 wav solo.wav
 wait 6000
 wavstop
-tapkey b8
+tapkey b9
 wait 40
 expect solos 0
-tapkey b7
+tapkey b8
 wait 40
 expect mutes 0
 tapkey b10

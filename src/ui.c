@@ -309,7 +309,7 @@ static uint32_t slot(uint32_t bi, uint32_t *arg, const char **lbl, uint32_t *lit
         *arg = bi;
         *lbl = TRK_LBL[bi];
         if (pg == PG_MIX) {
-            *lit = ui.mix_mode ? sc.tp[bi][TP_SOLO] : sc.tp[bi][TP_MUTE];
+            *lit = ui.mix_mode == 2u ? bi == cur_trk : ui.mix_mode ? sc.tp[bi][TP_SOLO] : sc.tp[bi][TP_MUTE];
             return S_MTRK;
         }
         *lit = bi == cur_trk;
@@ -318,13 +318,11 @@ static uint32_t slot(uint32_t bi, uint32_t *arg, const char **lbl, uint32_t *lit
     if (pg == PG_HOME)
         return c < 2u ? (*lbl = c ? "LTC" : "PLY", *lit = c ? latch : playing, c ? S_LATCH : S_PLAY) : S_NONE;
     if (pg == PG_MIX) {
-        static const char *const ML[4] = {"MUTE", "SOLO", "CLRM", "CLRS"};
-        static const uint8_t MA[4] = {S_MMODE, S_MMODE, S_MCLR, S_SCLR};
-        if (c > 3u)
-            return S_NONE;
+        static const char *const ML[5] = {"SEL", "MUTE", "SOLO", "CLRM", "CLRS"};
+        static const uint8_t MA[5] = {S_MMODE, S_MMODE, S_MMODE, S_MCLR, S_SCLR};
         *lbl = ML[c];
-        *arg = c;
-        *lit = c < 2u && ui.mix_mode == c;
+        *arg = c == 0u ? 2u : c - 1u;                         /* the track keys' mode: 2 select, 0 mute, 1 solo */
+        *lit = c < 3u && ui.mix_mode == *arg;
         return MA[c];
     }
     if (pg == PG_SAV) {
@@ -478,7 +476,7 @@ static void mix_open(void)
     if (ui.page != PG_MIX)
         ui.prev_page = ui.page;
     ui.page = PG_MIX;
-    app_say("MIX", ui.mix_mode ? "SOLO" : "MUTE");
+    app_say("MIX", ui.mix_mode == 2u ? "SELECT" : ui.mix_mode ? "SOLO" : "MUTE");
 }
 static void mix_close(void)
 {
@@ -659,8 +657,12 @@ static void black_key(uint32_t bi, int down)
     case S_NLIST: page_open(PG_SAV, 0); break;
     case S_PLAY: play_toggle(); break;
     case S_LATCH: latch_toggle(); break;
-    case S_MMODE: ui.mix_mode = (uint8_t)arg; app_say("TRACK KEYS", arg ? "SOLO" : "MUTE"); break;
+    case S_MMODE: ui.mix_mode = (uint8_t)arg; app_say("TRACK KEYS", arg == 2u ? "SELECT" : arg ? "SOLO" : "MUTE"); break;
     case S_MTRK:
+        if (ui.mix_mode == 2u) {             /* SEL: the key picks the track */
+            track_pick(arg);
+            break;
+        }
         t = ui.mix_mode ? TP_SOLO : TP_MUTE;
         sc.tp[arg][t] ^= 1u;
         sc_dirty = 1;
