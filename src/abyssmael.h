@@ -48,6 +48,10 @@ static const uint8_t RATE_TICKS[7] = {1, 2, 4, 8, 16, 32, 64};
 static const char *const ARP_RATE[4] = {"1/16", "1/8", "1/4", "1/2"};
 static const char *const ARP_PAT[4] = {"UP", "DOWN", "UP DOWN", "RANDOM"};
 static const char *const OFF_ON[2] = {"OFF", "ON"};
+/* the delay's tempo sync (GP_DSYNC): FREE uses TIME; else the time is this many beats at the scene's tempo, halved until it
+ * fits the delay line (0.72 s). T: triplet, dot: dotted. The right channel then runs at the same time as the left. */
+static const char *const DSYNC_NAME[9] = {"FREE", "1/16", "1/8T", "1/8", "1/8.", "1/4T", "1/4", "1/4.", "1/2"};
+static const float DSYNC_BEATS[9] = {0.0f, 0.25f, 1.0f / 3.0f, 0.5f, 0.75f, 2.0f / 3.0f, 1.0f, 1.5f, 2.0f};
 static const char *const MOVE_NAME[4] = {"FIFTH", "FOURTH", "STEP", "ANY"};
 static const char *const THEME_NAME[5] = {"GREEN", "AMBER", "CYAN", "RED", "MONO"};
 static const char *const SCENE_NAME[4] = {"DEEP", "GLASS", "TIDE", "VOID"};
@@ -77,7 +81,7 @@ enum {   /* the scene's global values */
     GP_KEY, GP_SCALE, GP_TEMPO, GP_SWING, GP_DRIFT, GP_MOVE, GP_TUNE, GP_THEME,
     GP_HISS, GP_CRACKLE, GP_WOW, GP_AGE,
     GP_DTIME, GP_DFB, GP_DTONE, GP_DMIX, GP_RSIZE, GP_RDAMP, GP_RSHIM, GP_RMIX,
-    GP_DARK, GP_ACT, GP_SPACE, GP_SLEEP, NGP
+    GP_DARK, GP_ACT, GP_SPACE, GP_SLEEP, GP_DSYNC, NGP
 };
 typedef struct {
     uint8_t gp[NGP];
@@ -128,7 +132,7 @@ static const pdesc_t GPD[NGP] = {
     {"DELAY MIX", 0, 100, K_PCT, 2, 0}, {"SIZE", 0, 100, K_PCT, 2, 0}, {"DAMPING", 0, 100, K_PCT, 2, 0},
     {"SHIMMER", 0, 100, K_PCT, 2, 0}, {"REVERB MIX", 0, 100, K_PCT, 2, 0},
     {"DARK", 0, 100, K_PCT, 2, 0}, {"ACTIVITY", 0, 100, K_PCT, 2, 0}, {"SPACE", 0, 100, K_PCT, 2, 0},
-    {"SLEEP TIMER", 0, 100, K_SLEEP, 1, 0},
+    {"SLEEP TIMER", 0, 100, K_SLEEP, 1, 0}, {"DELAY SYNC", 0, 8, K_ENUM, 1, DSYNC_NAME},
 };
 
 /* the pages: button, its pages, four values each (a track value, or G(...) for a global one) */
@@ -136,13 +140,13 @@ static const pdesc_t GPD[NGP] = {
 enum { PG_HOME, PG_EDIT, PG_ENV, PG_LFO, PG_SEQ, PG_ARP, PG_FX, PG_GLO, PG_MIX, PG_SCALE, NPG };
 static const char *const PG_NAME[NPG] = {"HOME", "EDIT", "ENV", "LFO", "SEQ", "ARP", "FX", "GLO", "MIX", "SCALE"};
 static const uint8_t PG_BTN[NPG] = {B_HOME, B_EDIT, B_ENV, B_LFO, B_SEQ, B_ARP, B_FX, B_GLO, 0xFFu, B_SEL};   /* MIX: a black key */
-static const uint8_t PG_N[NPG] = {2, 2, 2, 2, 3, 2, 3, 4, 1, 1};   /* GLO's fourth page is on black key 4 (BUILD AND CPU) */
+static const uint8_t PG_N[NPG] = {2, 2, 2, 2, 3, 2, 4, 4, 1, 1};   /* GLO's fourth page is on black key 4 (BUILD AND CPU) */
 static const char *const PG_TITLE[NPG][4] = {
     {"HOME", "SESSION"}, {"SOUND A", "SOUND B"}, {"AMP ENVELOPE", "FILTER"}, {"LFO 1", "LFO 2"}, {"SEQUENCER", "", "PATTERN"},
-    {"ARPEGGIO", "ARP SOURCE"}, {"TRACK MIX", "DELAY", "SHIMMER REVERB"}, {"KEY AND TIME", "DRIFT", "AGE", "NOW (PEAK) K1 CLEARS"}, {"MUTE AND SOLO"}, {"KEY, SCALE, KEYS"}};
+    {"ARPEGGIO", "ARP SOURCE"}, {"TRACK MIX", "DELAY", "SHIMMER REVERB", "DELAY SYNC"}, {"KEY AND TIME", "DRIFT", "AGE", "NOW (PEAK) K1 CLEARS"}, {"MUTE AND SOLO"}, {"KEY, SCALE, KEYS"}};
 /* the pages' short names, for the black keys */
 static const char *const PG_SHORT[NPG][4] = {
-    {""}, {"SND A", "SND B"}, {"AMP", "FILT"}, {"LFO1", "LFO2"}, {"SEQ", "", "PATT"}, {"ARP", "SRC"}, {"MIX", "DELAY", "VERB"},
+    {""}, {"SND A", "SND B"}, {"AMP", "FILT"}, {"LFO1", "LFO2"}, {"SEQ", "", "PATT"}, {"ARP", "SRC"}, {"MIX", "DELAY", "VERB", "SYNC"},
     {"KEY", "DRIFT", "AGE", "INFO"}, {""}, {"SCALE"}};
 static const uint8_t PG_REF[NPG][4][4] = {
     {{G(GP_DARK), G(GP_ACT), G(GP_SPACE), TP_LEVEL}, {G(GP_SLEEP), G(GP_TEMPO), G(GP_SWING), G(GP_DRIFT)}},
@@ -152,14 +156,14 @@ static const uint8_t PG_REF[NPG][4][4] = {
     {{TP_RATE, TP_GATE, TP_OCT, TP_ACCENT}, {0}, {0}},   /* SEQ 2 and 3: the mode's (seq_ref) */
     {{TP_ARPON, TP_ARPRATE, TP_ARPPAT, TP_ARPGATE}, {TP_ARPSRC, TP_ARPON, TP_LEVEL, TP_PAN}},
     {{TP_LEVEL, TP_PAN, TP_DSEND, TP_RSEND}, {G(GP_DTIME), G(GP_DFB), G(GP_DTONE), G(GP_DMIX)},
-     {G(GP_RSIZE), G(GP_RDAMP), G(GP_RSHIM), G(GP_RMIX)}},
+     {G(GP_RSIZE), G(GP_RDAMP), G(GP_RSHIM), G(GP_RMIX)}, {G(GP_DSYNC), G(GP_DFB), G(GP_DTONE), G(GP_DMIX)}},
     {{G(GP_KEY), G(GP_SCALE), G(GP_TEMPO), G(GP_SWING)}, {G(GP_DRIFT), G(GP_MOVE), G(GP_TUNE), G(GP_THEME)},
      {G(GP_HISS), G(GP_CRACKLE), G(GP_WOW), G(GP_AGE)}},
     {{TP_LEVEL, TP_PAN, TP_DSEND, TP_RSEND}},
     {{G(GP_KEY), G(GP_SCALE), 0x60, 0x61}},   /* SCALE: 0x60 scale mode on/off, 0x61 the keys' octave (the UI's own) */
 };
 
-#define STORE_MAGIC 0x414D4235u          /* "AMB5" (conditions, drift, arp source, sleep) */
+#define STORE_MAGIC 0x414D4236u          /* "AMB6" (delay sync) */
 
 /* SEQ pages 2 and 3: the track's mode's four values */
 static const uint8_t MODE_REF[3][4] = {{TP_DENS, TP_RANGE, TP_STEPS, TP_DEJAVU},
@@ -260,3 +264,4 @@ void engines_flush(void);
 void engines_panic(void);
 /* --- fx.c */
 void fx_block(int32_t *lr, uint32_t n, uint32_t master_q12);   /* mx through delay, reverb and AGE to the output */
+float fx_delay_seconds(void);                      /* the delay time the scene asks for now (synced or free), in seconds */

@@ -260,3 +260,30 @@ shot info.png
 tapkey b0
 wait 40
 expect page 70
+
+# the delay's tempo sync: FX has a fourth page, DELAY SYNC; the scene's tempo is 70
+tap FX
+wait 40
+tap FX
+wait 40
+tap FX
+wait 40
+tap FX
+wait 40
+expect page 63
+expect dsync 0
+expect delay_ms 452
+spin K1 1
+wait 40
+expect dsync 1
+expect delay_ms 214
+spin K1 1
+wait 40
+expect delay_ms 286
+spin K1 4
+wait 40
+expect dsync 6
+expect delay_ms 429
+spin K1 -9
+wait 40
+expect dsync 0

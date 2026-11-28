@@ -97,12 +97,29 @@ static inline __attribute__((always_inline)) float soft_clip(float x)
 
 static inline __attribute__((always_inline)) float fabs_(float x) { return x < 0.0f ? -x : x; }
 
+/* the delay time the scene asks for, in seconds: TIME, or with SYNC a note length at the scene's tempo, halved until it
+ * fits the line (and doubled if it is too short) */
+static inline __attribute__((always_inline)) float dl_seconds(void)
+{
+    uint32_t sy = sc.gp[GP_DSYNC], k;
+    float t;
+    if (sy == 0u || sy >= 9u)
+        return 0.02f + 0.72f * pct(sc.gp[GP_DTIME]);
+    t = DSYNC_BEATS[sy] * 60.0f / (float)sc.gp[GP_TEMPO];
+    for (k = 0; k < 6u && t > 0.72f; k++)
+        t *= 0.5f;
+    for (k = 0; k < 6u && t < 0.02f; k++)
+        t *= 2.0f;
+    return t;
+}
+
+
 static PLAT_RAM_CODE void fx_audio(int32_t *lr, uint32_t n, uint32_t master_q12)
 {
     uint32_t i, k;
     float gain = (float)master_q12 / 4096.0f * 8300000.0f;
     /* delay, reverb and age settings, once a block */
-    float dl_target = (0.02f + 0.72f * pct(sc.gp[GP_DTIME])) * SR, dfb = pct(sc.gp[GP_DFB]) * 0.92f;
+    float dl_target = dl_seconds() * SR, dr_ratio = sc.gp[GP_DSYNC] ? 1.0f : 1.13f, dfb = pct(sc.gp[GP_DFB]) * 0.92f;
     float dtone = 0.08f + 0.85f * pct(sc.gp[GP_DTONE]), dtone2, dmix = pct(sc.gp[GP_DMIX]);
     float rsize = pct(sc.gp[GP_RSIZE]), rg = 0.55f + 0.44f * rsize, rdamp = 0.9f - 0.8f * pct(sc.gp[GP_RDAMP]), rdamp4;
     float rshim = pct(sc.gp[GP_RSHIM]), rmix = pct(sc.gp[GP_RMIX]);
@@ -220,7 +237,7 @@ static PLAT_RAM_CODE void fx_audio(int32_t *lr, uint32_t n, uint32_t master_q12)
                 float dl, dr, tr, pl = dl_lpl, pr = dl_lpr, ml = (dl_hl + ds_l) * 0.5f, mr = (dl_hr + ds_r) * 0.5f;
                 uint32_t pw = dl_w << 16;
                 dl_t += (dl_target - dl_t) * 0.0001f;
-                tr = dl_t * 1.13f;
+                tr = dl_t * dr_ratio;
                 if (tr > (float)(DL_LEN - 4u))
                     tr = (float)(DL_LEN - 4u);
                 dl = ip(dl_l, pw - (uint32_t)(int32_t)(dl_t * 65536.0f), DL_LEN - 1u);
@@ -417,3 +434,5 @@ static PLAT_RAM_CODE void fx_audio(int32_t *lr, uint32_t n, uint32_t master_q12)
 }
 
 void fx_block(int32_t *lr, uint32_t n, uint32_t master_q12) { PLAT_FAR(fx_audio)(lr, n, master_q12); }
+
+float fx_delay_seconds(void) { return dl_seconds(); }
