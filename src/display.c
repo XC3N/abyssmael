@@ -329,16 +329,18 @@ static void soft_plot(int32_t x, int32_t y16, uint32_t k, uint32_t cr, uint32_t 
     light_px(x, y + 1, k * (uint32_t)f / 16u, cr, cg, cb);
 }
 /* one column of a curve whose edge is at y16: the body fades down from the edge, the edge is bright and bloomed */
-static void curve_col(int32_t x, int32_t y16, int32_t base, uint32_t body)
+static void curve_col(int32_t x, int32_t y16, int32_t base, uint32_t body, uint32_t br, uint32_t bg, uint32_t bb)
 {
     int32_t y, top = (y16 + 15) >> 4;
     for (y = top; y < base; y++) {
-        uint32_t depth = (uint32_t)(y - top), k = body * (uint32_t)(80 - (int32_t)(depth > 79u ? 79u : depth)) / 80u;
-        light_px(x, y, k, 0, 28, 14);
+        uint32_t depth = (uint32_t)(y - top), k = body * (uint32_t)(90 - (int32_t)(depth > 89u ? 89u : depth)) / 90u;
+        light_px(x, y, k, br, bg, bb);
     }
-    soft_plot(x, y16, 255u, 9, 56, 26);
-    soft_plot(x, y16 - 24, 90u, 5, 36, 20);
-    soft_plot(x, y16 + 24, 50u, 5, 36, 20);
+    soft_plot(x, y16, 255u, 9, 56, 26);                 /* the edge, two pixels thick, bloomed */
+    soft_plot(x, y16 + 16, 255u, 9, 56, 26);
+    soft_plot(x, y16 - 32, 110u, 5, 36, 20);
+    soft_plot(x, y16 - 64, 45u, 3, 20, 12);
+    soft_plot(x, y16 + 48, 60u, 5, 36, 20);
 }
 static void bell_ground(void)
 {
@@ -346,12 +348,13 @@ static void bell_ground(void)
     for (gy = 0; gy < 100; gy++)
         cv_rect(0, gy, 240, 1, mixc(PAL6, PAL4, (uint32_t)gy));
 }
-/* the four stages of an envelope over 232 columns: the curve, the stage dividers, A D S R over each stage; scale 0..100 the height */
+/* the four stages of an envelope over 232 columns: the curve, a grid, the stage dividers, a node at each corner, A D S R over each stage */
 static void env_pic(uint32_t a, uint32_t dc, uint32_t s, uint32_t r, uint32_t scale, uint32_t body)
 {
-    int32_t wa = 10 + (int32_t)a * 52 / 100, wd = 10 + (int32_t)dc * 52 / 100, ws = 44, wr = 10 + (int32_t)r * 52 / 100, x;
-    int32_t tot = wa + wd + ws + wr, hmax = 84 * (int32_t)scale / 100, sh = (int32_t)s * hmax / 100, edge[4];
-    static const char *const L[4] = {"A", "D", "S", "R"};
+    int32_t wa = 14 + (int32_t)a * 50 / 100, wd = 14 + (int32_t)dc * 50 / 100, ws = 34, wr = 14 + (int32_t)r * 50 / 100, x, q;
+    int32_t tot = wa + wd + ws + wr, hmax = 84 * (int32_t)scale / 100, sh = (int32_t)s * hmax / 100;
+    static const char *const L[4] = {"ATTACK", "DECAY", "SUSTAIN", "RELEASE"};
+    static const uint8_t ST_R[4] = {0, 0, 6, 14}, ST_G[4] = {52, 44, 34, 22}, ST_B[4] = {26, 30, 34, 40};   /* a body colour for each stage: teal to violet */
     int32_t xs[5];
     bell_ground();
     xs[0] = 4;
@@ -359,28 +362,32 @@ static void env_pic(uint32_t a, uint32_t dc, uint32_t s, uint32_t r, uint32_t sc
     xs[2] = 4 + (wa + wd) * 232 / tot;
     xs[3] = 4 + (wa + wd + ws) * 232 / tot;
     xs[4] = 236;
+    for (q = 1; q < 4; q++)                                          /* a faint grid at a quarter, a half, three quarters */
+        cv_rect(4, 96 - 21 * q, 232, 1, PAL5);
     cv_rect(4, 96, 232, 1, PAL0);                                    /* the floor */
     for (x = 0; x < 232; x++) {
-        int32_t u = x * tot / 232, uf = x * tot * 16 / 232, y16;
-        int32_t h16;
-        if (u < wa)
+        int32_t u = x * tot / 232, uf = x * tot * 16 / 232, y16, h16, st = u < wa ? 0 : u < wa + wd ? 1 : u < wa + wd + ws ? 2 : 3;
+        if (st == 0)
             h16 = hmax * 16 * uf / (wa * 16);
-        else if (u < wa + wd)
+        else if (st == 1)
             h16 = hmax * 16 - (hmax - sh) * 16 * (uf - wa * 16) / (wd * 16);
-        else if (u < wa + wd + ws)
+        else if (st == 2)
             h16 = sh * 16;
         else
             h16 = sh * 16 * (tot * 16 - uf) / (wr * 16);
         if (h16 < 0)
             h16 = 0;
         y16 = (96 << 4) - h16;
-        curve_col(4 + x, y16, 96, body);
+        curve_col(4 + x, y16, 96, body, ST_R[st], ST_G[st], ST_B[st]);
     }
-    for (x = 1; x < 4; x++)                                          /* where one stage hands over to the next */
-        cv_rect(xs[x], 8, 1, 88, PAL3);
-    for (x = 0; x < 4; x++) {
-        edge[x] = (xs[x] + xs[x + 1]) / 2;
-        cv_text(edge[x] - 3, 2, &FONT_T, L[x], x == 2 ? ACC1 : ACC2);
+    for (q = 1; q < 4; q++)                                          /* where one stage hands over to the next */
+        cv_rect(xs[q], 10, 1, 86, PAL3);
+    glow_at(xs[1], 96 - hmax, 8, ACC3, 230u);                        /* the corners: the top of the attack, the foot of the decay, the end of the hold */
+    glow_at(xs[2], 96 - sh, 8, ACC3, 200u);
+    glow_at(xs[3], 96 - sh, 8, ACC3, 200u);
+    for (q = 0; q < 4; q++) {
+        int32_t mid = (xs[q] + xs[q + 1]) / 2, w = text_w(&FONT_T, L[q]);
+        cv_text(clamp(mid - w / 2, 2, 238 - w), 2, &FONT_T, L[q], q == 2 ? ACC1 : ACC2);
     }
 }
 /* one LFO: a few cycles of its shape (rate the number of cycles, depth the height), a faint centre line */
@@ -431,9 +438,9 @@ static void bell_draw(uint32_t pg, uint32_t sub)
     char t[16];
     cv_rect(0, 0, 240, 100, PAL5);
     if (pg == PG_ENV && sub == 0u) {         /* AMP: the curve of the loudness */
-        env_pic(p[TP_ATK], p[TP_DEC], p[TP_SUS], p[TP_REL], 100u, 130u);
+        env_pic(p[TP_ATK], p[TP_DEC], p[TP_SUS], p[TP_REL], 100u, 200u);
     } else if (pg == PG_ENV) {               /* FILTER ENV: its own curve, as tall as the amount (set on EDIT 3) says */
-        env_pic(p[TP_FATK], p[TP_FDEC], p[TP_FSUS], p[TP_FREL], 12u + p[TP_FENV] * 88u / 100u, 130u);
+        env_pic(p[TP_FATK], p[TP_FDEC], p[TP_FSUS], p[TP_FREL], 12u + p[TP_FENV] * 88u / 100u, 200u);
     } else if (pg == PG_LFO) {               /* the LFO: its shape at its rate and depth */
         lfo_pic(p[TP_L1RATE + 4u * sub], p[TP_L1DEP + 4u * sub], p[TP_L1SHP + 4u * sub]);
     } else if (sub < 2u && p[TP_INST] != I_BELL) {

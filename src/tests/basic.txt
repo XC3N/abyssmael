@@ -480,3 +480,28 @@ wait 40
 shot lfo_drift.png
 spin K3 1
 wait 40
+
+# a typical envelope, for the picture
+wait 1500
+tapkey b1
+wait 40
+tapkey b0
+wait 40
+tap ENV
+wait 40
+spin PRESET -1
+wait 40
+spin K1 20
+spin K2 -5
+spin K3 30
+spin K4 -10
+wait 40
+shot env_typical.png
+spin PRESET 1
+wait 40
+spin K1 15
+spin K2 -10
+spin K3 25
+spin K4 -5
+wait 40
+shot env_filter_typical.png
