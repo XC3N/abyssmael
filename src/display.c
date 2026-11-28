@@ -458,6 +458,50 @@ static void lfo_pic(uint32_t rate, uint32_t depth, uint32_t shape)
         soft_plot(4 + x, y16 + 32, 80u, 5, 36, 20);
     }
 }
+static float amb_sqrt(float v)
+{
+    float g = v > 1.0f ? v * 0.5f : 1.0f;
+    int i;
+    for (i = 0; i < 6; i++)
+        g = 0.5f * (g + v / g);
+    return g;
+}
+/* the filter: a smooth two-pole response on a log frequency axis, the resonance a peak at the cutoff, a ghost where the envelope opens it */
+static void filter_pic(uint32_t cut, uint32_t res, uint32_t keyt, uint32_t amt)
+{
+    int32_t pass, x;
+    float q = 0.6f + (float)res * 0.09f;
+    float fc0 = 20.0f + (float)cut * 1.9f + ((float)keyt - 50.0f) / 6.0f;
+    bell_ground();
+    for (x = 40; x < 232; x += 48)
+        cv_rect(4 + x, 4, 1, 92, GND_B);
+    for (pass = 1; pass >= 0; pass--) {
+        float fc = pass ? fc0 + (float)amt * (222.0f - fc0) / 200.0f : fc0;
+        for (x = 0; x < 232; x++) {
+            float u = ((float)x + 4.0f) / fc, d = 1.0f - u * u;
+            float m = 1.0f / amb_sqrt(d * d + u * u / (q * q));
+            int32_t y16, a, yb;
+            if (m > 4.0f) m = 4.0f;
+            y16 = (int32_t)((86.0f - 22.0f * m) * 16.0f);
+            if (u > 1.0f) {                       /* the slope falls faster: pull it down a touch so it leaves the picture */
+                y16 += (int32_t)((u - 1.0f) * 220.0f);
+            }
+            if (y16 < 4 * 16) y16 = 4 * 16;
+            if (y16 > 120 * 16) y16 = 120 * 16;
+            if (pass) {
+                if ((x & 3) < 2) soft_plot(4 + x, y16, 150u, 4, 40, 28);
+                continue;
+            }
+            yb = y16 >> 4;
+            for (a = yb; a < 96; a++)
+                light_px(4 + x, a, 30u, 0, 26, 14);
+            soft_plot(4 + x, y16, 255u, 9, 56, 26);
+            soft_plot(4 + x, y16 - 32, 80u, 5, 36, 20);
+            soft_plot(4 + x, y16 + 32, 80u, 5, 36, 20);
+        }
+    }
+    glow_at(4 + (int32_t)fc0, 64, 8, ACC1, 90u);
+}
 static void bell_draw(uint32_t pg, uint32_t sub)
 {
     const uint8_t *p = sc.tp[cur_trk];
@@ -487,23 +531,7 @@ static void bell_draw(uint32_t pg, uint32_t sub)
             cv_rect(bx, 96 - h, 10, h, c);
         }
     } else {                                 /* FILTER: the response: flat, a peak at the cutoff, then down; env amount a ghost where it opens to */
-        uint32_t cut = p[TP_CUT], res = p[TP_RES], keyt = p[TP_KEYT], amt = p[TP_FENV];
-        int32_t cxp = 20 + (int32_t)cut * 190 / 100 + ((int32_t)keyt - 50) / 6, ox = cxp + (int32_t)amt * (222 - cxp) / 100 / 2, pass;
-        for (pass = 0; pass < 2; pass++) {
-            int32_t c0 = pass ? ox : cxp;
-            for (x = 0; x < 232; x++) {
-                int32_t d = x - c0, v = 60, bump = (int32_t)res * 30 / 100;
-                if (d > 0)
-                    v = 60 - d * 2 / 2 * 60 / 90;
-                v += d > -12 && d < 12 ? bump * (12 - (d < 0 ? -d : d)) / 12 : 0;
-                pt[x] = (uint8_t)(v < 0 ? 0 : v > 90 ? 90 : v);
-            }
-            if (pass)
-                for (x = 0; x < 232; x += 3)
-                    cv_rect(4 + x, 96 - pt[x], 1, 1, ACC2);    /* the ghost: where the envelope opens it to */
-            else
-                bell_graph(pt, 96, 88, PAL0, PAL4);
-        }
+        filter_pic(p[TP_CUT], p[TP_RES], p[TP_KEYT], p[TP_FENV]);
     }
     /* the four values, big, under the picture: a small name and the number */
     for (k = 0; k < nk; k++) {
