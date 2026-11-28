@@ -227,7 +227,7 @@ static void ref_turn(uint32_t ref, int32_t e)
     if (ref == G(GP_THEME))
         palette_set(sc.gp[GP_THEME]);
     ref_text(ref, t);
-    app_say(ref_name(ref), t);
+    app_say_quiet(ref_name(ref), t);
 }
 
 /* how many pages a button has now: EDIT has a third for the bell (its filter) */
