@@ -220,6 +220,8 @@ uint32_t sleep_left_s(void);                 /* seconds to go (0 when off) */
 extern volatile uint8_t prof_pct[5], prof_max[5];   /* [4]: the whole app_render call (R), so C - R is the rest of the audio interrupt */
 extern voice_t vc[NVOICE];
 extern motif_t mo[NTRK];
+extern volatile uint8_t rec_mode;                  /* REC: 0 off, 1 LIVE (seq.c writes played keys into the pattern), 2 STEP (the UI's cursor entry); the UI writes it */
+extern volatile uint8_t rec_dirty;                 /* seq.c wrote the scene in LIVE REC: the UI marks the scene changed and clears it */
 extern uint8_t seq_pos[NTRK], seq_cur[NTRK];
 extern uint8_t eu_hits_now[NTRK], eu_rot_now[NTRK];   /* EUCLID: the hits and rotation in play (HITS and ROTATE plus DRIFT) */
 

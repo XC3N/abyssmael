@@ -64,6 +64,8 @@ uint32_t track_audible(uint32_t t)
 uint8_t seq_pos[NTRK], seq_cur[NTRK];
 static int8_t seq_dir[NTRK] = {1, 1, 1, 1, 1, 1};
 uint8_t eu_hits_now[NTRK], eu_rot_now[NTRK];
+volatile uint8_t rec_mode, rec_dirty;
+static uint32_t step_tick[NTRK];         /* the clock tick a track's pattern last stepped on */
 static uint16_t seq_n[NTRK];             /* steps run since play started: pass = seq_n / length */
 static int8_t drift_h[NTRK], drift_r[NTRK];   /* EUCL DRIFT: how far the hits and rotation have wandered */
 static uint8_t prev_ok[NTRK];            /* the last tested hit played (for PRE) */
@@ -133,6 +135,7 @@ static void pat_step(uint32_t t, float tick_s, uint32_t rt, int32_t oct)
     int32_t deg = -1;
     uint32_t len, k;
     float chance;
+    step_tick[t] = clk_tick;
     if (p[TP_SMODE] == 1u) {                 /* EUCLID */
         int32_t h, hits, rot, pos;
         len = p[TP_ELEN];
@@ -317,9 +320,52 @@ static void held_remove(uint32_t t, uint32_t note)
         }
 }
 
+/* LIVE REC: write a played key into the track's pattern at the nearest step (the one that played, or the next if more than
+ * half its length has gone by), as the nearest scale degree of the track's octave range (octaves fold in) */
+static void rec_key(uint32_t t, const kev_t *e, float tick_s)
+{
+    const uint8_t *p = sc.tp[t];
+    uint32_t mode = p[TP_SMODE], len, dir, rt = RATE_TICKS[p[TP_RATE]], pos, d;
+    int32_t oct = INST_OCT[p[TP_INST]] + (int32_t)p[TP_OCT] - 3, deg, best = 99999, want = 100 * (int32_t)e->note + e->cents;
+    float el;
+    if (!mode)
+        return;
+    for (d = 0, deg = 0; d < 16u; d++) {
+        int32_t diff = degree_note((int32_t)d, oct) * 100 + degree_cents((int32_t)d, oct) - want, a = diff < 0 ? -diff : diff;
+        int32_t fold = a % 1200;
+        fold = fold > 600 ? 1200 - fold : fold;
+        if (fold * 8 + a / 1200 < best)
+            best = fold * 8 + a / 1200, deg = (int32_t)d;
+    }
+    len = mode == 1u ? p[TP_ELEN] : p[TP_SLEN];
+    dir = mode == 1u ? p[TP_EDIR] : p[TP_SDIR];
+    el = (float)(clk_tick - 1u - step_tick[t]) + 1.0f - clk_left / (tick_s * SR);
+    pos = seq_cur[t] % len;
+    if (el * 2.0f >= (float)rt && dir <= 1u)
+        pos = dir ? len - 1u - seq_pos[t] % len : seq_pos[t] % len;
+    if (mode == 2u) {
+        sc.sn[t][pos] = (uint8_t)deg;
+        sc.son[t] |= (uint16_t)(1u << pos);
+    } else {
+        uint32_t hits = eu_hits_now[t], rot = eu_rot_now[t] % len;
+        int32_t h = -1;
+        for (d = 0; d <= len / 2u && h < 0; d++) {
+            h = eu_hit((pos + d + len - rot) % len, hits, len);
+            if (h < 0)
+                h = eu_hit((pos + len - d % len + len - rot) % len, hits, len);
+        }
+        if (h < 0)
+            return;
+        sc.hn[t][h] = (uint8_t)deg;
+    }
+    rec_dirty = 1;
+}
+
 static void key_play(const kev_t *e)
 {
     uint32_t t = e->trk;
+    if (e->on && rec_mode == 1u && playing)
+        rec_key(t, e, 15.0f / (float)sc.gp[GP_TEMPO]);
     if (sc.tp[t][TP_ARPON] && sc.tp[t][TP_ARPSRC] != 1u) {   /* with the arpeggio, keys only add notes to its list */
         if (e->on)
             held_add(t, e->note, e->cents, 0u);
