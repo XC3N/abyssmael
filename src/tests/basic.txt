@@ -54,9 +54,15 @@ spin PRESET 1
 wait 40
 shot bell_filter.png
 spin K2 40
+spin K1 -9
+spin K3 30
+spin K4 20
 wait 10
 shot bell_filter_res.png
 spin K2 -40
+spin K1 9
+spin K3 -30
+spin K4 -20
 tapkey b1
 wait 40
 expect track 1

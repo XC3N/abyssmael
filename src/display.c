@@ -126,6 +126,19 @@ static void light_px(int32_t x, int32_t y, uint32_t i, uint32_t cr, uint32_t cg,
     b = (uint32_t)(v & 31u) + (cb * i >> 8);
     cv_px[(uint32_t)y * cv_w + (uint32_t)x] = swap16((uint16_t)((r > 31u ? 31u : r) << 11 | (g > 63u ? 63u : g) << 5 | (b > 31u ? 31u : b)));
 }
+/* one row of the ground, dithered: the blend is worked out in 8 bits per channel and a 4x4 Bayer pattern decides each pixel's
+ * rounding to 565, so the few dark levels the panel has don't show as bands. f is 0..100 from GND_A to GND_B */
+static void ground_row(int32_t gy, uint32_t f)
+{
+    static const int8_t BY[16] = {-8, 0, -6, 2, 4, -4, 6, -2, -5, 3, -7, 1, 7, -1, 5, -3};
+    int32_t x;
+    int32_t r = 3 + (2 - 3) * (int32_t)f / 100, g = 3 + (9 - 3) * (int32_t)f / 100, b = 10 + (14 - 10) * (int32_t)f / 100;
+    for (x = 0; x < 240; x++) {
+        int32_t d = BY[(gy & 3) * 4 + (x & 3)], rr = (r + d) >> 3, gg = (g + d) >> 2, bb = (b + d) >> 3;
+        rr = rr < 0 ? 0 : rr > 31 ? 31 : rr; gg = gg < 0 ? 0 : gg > 63 ? 63 : gg; bb = bb < 0 ? 0 : bb > 31 ? 31 : bb;
+        cv_px[(uint32_t)gy * cv_w + (uint32_t)x] = swap16((uint16_t)(rr << 11 | gg << 5 | bb));
+    }
+}
 /* a soft glow of radius rad (<= 12) around a point, in a 565 colour, amount 0..255 */
 static void glow_at(int32_t cx, int32_t cy, int32_t rad, uint16_t col, uint32_t amt)
 {
@@ -336,7 +349,7 @@ static void inst_pic(const uint8_t *p, uint32_t sub)
     uint32_t inst = p[TP_INST], a = p[TP_P0 + sub * 4u], b = p[TP_P1 + sub * 4u], c = p[TP_P2 + sub * 4u], e = p[TP_P3 + sub * 4u], i, rng = 12345u + inst * 977u + sub * 31u;
     int32_t gy, x, y;
     for (gy = 0; gy < 100; gy++)
-        cv_rect(0, gy, 240, 1, mixc(GND_A, GND_B, (uint32_t)gy));
+        ground_row(gy, (uint32_t)gy);
     if (inst == I_PLUCK && sub == 0u) {      /* STRING: damp, bright, sustain, position: a standing wave, the pluck point marked */
         uint32_t nh = 1u + b * 6u / 100u, m;
         static int32_t y16[232];
@@ -461,7 +474,7 @@ static void bell_ground(void)
 {
     int32_t gy;
     for (gy = 0; gy < 100; gy++)
-        cv_rect(0, gy, 240, 1, mixc(GND_A, GND_B, (uint32_t)gy));
+        ground_row(gy, (uint32_t)gy);
 }
 /* the four stages of an envelope over 232 columns: the curve, a grid, the stage dividers, a node at each corner, A D S R over each stage */
 static void env_pic(uint32_t a, uint32_t dc, uint32_t s, uint32_t r, uint32_t scale, uint32_t body)
@@ -556,7 +569,7 @@ static float amb_sqrt(float v)
 static void filter_pic(uint32_t cut, uint32_t res, uint32_t keyt, uint32_t amt)
 {
     int32_t pass, x;
-    float q = 0.6f + (float)res * 0.09f;
+    float q = 0.7f + (float)res * 0.032f;       /* up to about 3.9: a round peak, not a spike */
     float fc0 = 20.0f + (float)cut * 1.9f + ((float)keyt - 50.0f) / 6.0f;
     bell_ground();
     for (x = 40; x < 232; x += 48)
@@ -573,7 +586,7 @@ static void filter_pic(uint32_t cut, uint32_t res, uint32_t keyt, uint32_t amt)
                 y16 += (int32_t)((u - 1.0f) * 220.0f);
             }
             if (y16 < 4 * 16) y16 = 4 * 16;
-            if (y16 > 120 * 16) y16 = 120 * 16;
+            if (y16 > 96 * 16) y16 = 96 * 16;
             if (pass) {
                 if ((x & 3) < 2) soft_plot(4 + x, y16, 150u, 4, 40, 28);
                 continue;
@@ -587,6 +600,34 @@ static void filter_pic(uint32_t cut, uint32_t res, uint32_t keyt, uint32_t amt)
         }
     }
     glow_at(4 + (int32_t)fc0, 64, 8, ACC1, 90u);
+}
+/* a knob's small name over its big number: one that is too wide for its 56 px gets the long words short (AMOUNT, TRACK ...) */
+static void knob_label(int32_t xx, const char *nm)
+{
+    char t[24];
+    uint32_t i = 0, j;
+    static const char *const LONG[][2] = {{"AMOUNT", "AMT"}, {"TRACK", "TRK"}, {"FEEDBACK", "FDBK"}, {"RESONANCE", "RESO"}, {"DECAY", "DEC"}};
+    for (; nm[i] && i < 22u; i++)
+        t[i] = nm[i];
+    t[i] = 0;
+    for (j = 0; text_w(&FONT_T, t) > 50 && j < 5u; j++) {
+        uint32_t n = 0, m = 0, k;
+        while (LONG[j][0][n]) n++;
+        for (k = 0; t[k]; k++) {
+            for (m = 0; m < n && t[k + m] == LONG[j][0][m]; m++) {}
+            if (m == n) {
+                char u[24];
+                uint32_t q = 0, z;
+                for (z = 0; z < k; z++) u[q++] = t[z];
+                for (z = 0; LONG[j][1][z]; z++) u[q++] = LONG[j][1][z];
+                for (z = k + n; t[z]; z++) u[q++] = t[z];
+                u[q] = 0;
+                for (z = 0; z <= q; z++) t[z] = u[z];
+                break;
+            }
+        }
+    }
+    cv_text(xx, 102, &FONT_T, t, ACC2);
 }
 static void bell_draw(uint32_t pg, uint32_t sub)
 {
@@ -627,7 +668,7 @@ static void bell_draw(uint32_t pg, uint32_t sub)
             const char *nm = ref_name(ref);
             if (nm[0] == 'F' && nm[1] == 'I' && nm[2] == 'L' && nm[5] == 'R' && nm[6] == ' ')   /* "FILTER ATTACK": the page says FILTER */
                 nm += 7;
-            cv_text(xx, 102, &FONT_T, nm, ACC2);
+            knob_label(xx, nm);
         }
         ref_text(ref, t);
         big_value(xx, t);
@@ -643,7 +684,7 @@ static void fx_sync_draw(void)
     uint32_t dl_px = (uint32_t)(fx_delay_seconds() * 232.0f / 1.6f + 0.5f);   /* the line shows 1.6 seconds */
     char t[16];
     for (gy = 0; gy < 100; gy++)
-        cv_rect(0, gy, 240, 1, mixc(GND_A, GND_B, (uint32_t)gy));
+        ground_row(gy, (uint32_t)gy);
     beat_px = (uint32_t)(60.0f * 232.0f / 1.6f / (float)sc.gp[GP_TEMPO] + 0.5f);
     if (beat_px >= 6u)
         for (x = 4; x < 236; x += (int32_t)beat_px)
@@ -668,7 +709,7 @@ static void fx_sync_draw(void)
     for (k = 0; k < 4u; k++) {
         uint32_t ref = page_ref(PG_FX, 3, k);
         int32_t xx = 4 + (int32_t)k * 59;
-        cv_text(xx, 102, &FONT_T, ref_name(ref), ACC2);
+        knob_label(xx, ref_name(ref));
         ref_text(ref, t);
         big_value(xx, t);
     }
@@ -737,7 +778,7 @@ middle:
         {
             int32_t gy;
             for (gy = 0; gy < 98; gy++)
-                cv_rect(0, gy, 240, 1, mixc(GND_A, GND_B, (uint32_t)gy * 100u / 98u));
+                ground_row(gy, (uint32_t)gy * 100u / 98u);
         }
         for (k = 0; k < NTRK; k++) {
             int32_t x = 4 + (int32_t)k * 39, h = (int32_t)sc.tp[k][TP_LEVEL] * 56 / 100;
@@ -793,7 +834,7 @@ middle:
             int32_t gx, gy;
             d3_init();
             for (gy = 0; gy < 122; gy++)
-                cv_rect(0, gy, 240, 1, mixc(GND_A, GND_B, (uint32_t)gy * 100u / 122u));
+                ground_row(gy, (uint32_t)gy * 100u / 122u);
             for (gy = cy - r - 10; gy <= cy + r + 10; gy++)
                 for (gx = cx - r - 10; gx <= cx + r + 10; gx++) {
                     int32_t ddx = gx - cx, ddy = gy - cy;
@@ -880,7 +921,7 @@ middle:
         {   /* the new style: an indigo ground, active cells glow, the one playing is white */
             int32_t gy;
             for (gy = 0; gy < 100; gy++)
-                cv_rect(0, gy, 240, 1, mixc(GND_A, GND_B, (uint32_t)gy));
+                ground_row(gy, (uint32_t)gy);
         }
         for (k = 0; k < 16u; k++) {
             int32_t x = 8 + (int32_t)k * 14, deg = -1, h = -1, act = 0, hh;
@@ -1011,7 +1052,7 @@ middle:
         {
             int32_t gy;
             for (gy = 0; gy < 100; gy++)
-                cv_rect(0, gy, 240, 1, mixc(GND_A, GND_B, (uint32_t)gy));
+                ground_row(gy, (uint32_t)gy);
         }
         for (k = 0; k < NTRK; k++) {
             int32_t y = (int32_t)k * 20 + 1, xx;
