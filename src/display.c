@@ -78,6 +78,53 @@ static void env_curve(uint8_t *pt, uint32_t a, uint32_t dc, uint32_t s, uint32_t
  * into two centres that circle slowly; the rings drift outward and brighten when the bell is struck. */
 static uint8_t d3_tab[4097];                 /* 3 x the distance (in pixels), for a squared distance 0..4096 */
 static uint8_t d3_ready, bell_ring, bell_last;
+static void d3_init(void)
+{
+    uint32_t r = 0, i;
+    if (d3_ready)
+        return;
+    for (i = 0; i <= 4096u; i++) {           /* once: 3 x sqrt(d2) by counting */
+        while ((r + 1u) * (r + 1u) <= i * 9u)
+            r++;
+        d3_tab[i] = (uint8_t)r;
+    }
+    d3_ready = 1;
+}
+/* add light to a pixel: i 0..255 of the colour (r 0..31, g 0..63, b 0..31 at full) */
+static void light_px(int32_t x, int32_t y, uint32_t i, uint32_t cr, uint32_t cg, uint32_t cb)
+{
+    uint16_t v;
+    uint32_t r, g, b;
+    if ((uint32_t)x >= cv_w || (uint32_t)y >= 162u)
+        return;
+    v = swap16(cv_px[(uint32_t)y * cv_w + (uint32_t)x]);
+    r = (uint32_t)(v >> 11) + (cr * i >> 8);
+    g = (uint32_t)((v >> 5) & 63u) + (cg * i >> 8);
+    b = (uint32_t)(v & 31u) + (cb * i >> 8);
+    cv_px[(uint32_t)y * cv_w + (uint32_t)x] = swap16((uint16_t)((r > 31u ? 31u : r) << 11 | (g > 63u ? 63u : g) << 5 | (b > 31u ? 31u : b)));
+}
+/* a soft glow of radius rad (<= 12) around a point, in a 565 colour, amount 0..255 */
+static void glow_at(int32_t cx, int32_t cy, int32_t rad, uint16_t col, uint32_t amt)
+{
+    int32_t x, y;
+    uint32_t cr = col >> 11, cg = (col >> 5) & 63u, cb = col & 31u, r2 = (uint32_t)(rad * rad);
+    for (y = -rad; y <= rad; y++)
+        for (x = -rad; x <= rad; x++) {
+            uint32_t d2 = (uint32_t)(x * x + y * y);
+            if (d2 < r2) {
+                uint32_t q = (r2 - d2) * 255u / r2;
+                light_px(cx + x, cy + y, q * q / 255u * amt / 255u, cr, cg, cb);
+            }
+        }
+}
+static void disc_at(int32_t cx, int32_t cy, int32_t rad, uint16_t col)
+{
+    int32_t x, y;
+    for (y = -rad; y <= rad; y++)
+        for (x = -rad; x <= rad; x++)
+            if (x * x + y * y <= rad * rad + rad / 2)
+                cv_pset(cx + x, cy + y, col);
+}
 static void bell_metal(const uint8_t *p)
 {
     uint32_t ratio = p[TP_P0], idx = p[TP_P1], dec = p[TP_P2], beat = p[TP_P3];
@@ -86,15 +133,7 @@ static void bell_metal(const uint8_t *p)
     uint8_t lut[256];
     int32_t cxa, cya, cxb, cyb, sep = (int32_t)beat * 14 / 100, two = beat >= 4u;
     uint32_t ph = ((t & 0x3FFFFu) * (40u + beat * 240u / 100u)) / 6545u;
-    if (!d3_ready) {                         /* once: 3 x sqrt(d2) by counting */
-        uint32_t r = 0;
-        for (i = 0; i <= 4096u; i++) {
-            while ((r + 1u) * (r + 1u) <= i * 9u)
-                r++;
-            d3_tab[i] = (uint8_t)r;
-        }
-        d3_ready = 1;
-    }
+    d3_init();
     if (act > bell_last)                      /* a note began on this track: the bell is struck */
         bell_ring = 255;
     bell_last = (uint8_t)act;
@@ -311,35 +350,42 @@ static void draw(void)
             hn_sel = ui.hold_step;
         else
             hn_sel = (int32_t)ui.cursor % (int32_t)(hits ? hits : 1u);
-        for (k = 0; k < len; k++) {
-            uint32_t a = k * 96u / len;
-            int32_t x = cx + r * CS[(a + 72u) % 96u] / 100, y = cy - r * CS[a] / 100, h = eu_hit((k + len - rot % len) % len, hits, len);
-            if (k)
-                cv_line(px0, py0, x, y, C_LINE);
-            else
-                fx = x, fy = y;
-            px0 = x;
-            py0 = y;
-            if (h >= 0 && h == hn_sel)
-                sel = k;
-        }
-        cv_line(px0, py0, fx, fy, C_LINE);
-        if (playing) {                       /* the playhead's spoke */
-            uint32_t a = cur % len * 96u / len;
-            cv_line(cx, cy, cx + (r - 8) * CS[(a + 72u) % 96u] / 100, cy - (r - 8) * CS[a] / 100, C_DIM);
-        }
-        for (k = 0; k < len; k++) {
-            uint32_t a = k * 96u / len;
-            int32_t x = cx + r * CS[(a + 72u) % 96u] / 100, y = cy - r * CS[a] / 100, h = eu_hit((k + len - rot % len) % len, hits, len);
-            if (h < 0) {
-                cv_rect(x - 1, y - 1, 3, 3, C_DIM);
-            } else {
-                uint32_t on = sc.hn[cur_trk][h] != REST;
-                if (k == sel)
-                    cv_rect(x - 7, y - 7, 15, 15, C_HI);
-                cv_rect(x - 5, y - 5, 11, 11, k == cur && playing ? C_WHITE : on ? hit_colour((uint32_t)h, hits) : C_LINE);
-                if (sc.cd[cur_trk][h])         /* a condition: a dark pip */
-                    cv_rect(x - 1, y - 1, 3, 3, C_BLACK);
+        {   /* the ring in the new style: the ground, a soft band along the circle, glowing hits; the playing one white */
+            int32_t gx, gy;
+            d3_init();
+            for (gy = 0; gy < 122; gy++)
+                cv_rect(0, gy, 240, 1, mixc(PAL6, PAL4, (uint32_t)gy * 100u / 122u));
+            for (gy = cy - r - 10; gy <= cy + r + 10; gy++)
+                for (gx = cx - r - 10; gx <= cx + r + 10; gx++) {
+                    int32_t ddx = gx - cx, ddy = gy - cy;
+                    uint32_t d2 = (uint32_t)(ddx * ddx + ddy * ddy), w;
+                    if (d2 > 4096u)
+                        continue;
+                    w = (uint32_t)d3_tab[d2] > (uint32_t)(3 * r) ? (uint32_t)d3_tab[d2] - 3u * (uint32_t)r : 3u * (uint32_t)r - d3_tab[d2];
+                    if (w < 15u)
+                        light_px(gx, gy, (15u - w) * 255u / 15u * 90u / 255u, 9u, 56u, 26u);
+                }
+            for (k = 0; k < len; k++) {
+                uint32_t a = k * 96u / len;
+                int32_t x = cx + r * CS[(a + 72u) % 96u] / 100, y = cy - r * CS[a] / 100, h = eu_hit((k + len - rot % len) % len, hits, len);
+                if (h >= 0 && h == hn_sel)
+                    sel = k;
+                if (h < 0) {
+                    cv_rect(x - 1, y - 1, 2, 2, PAL0);
+                    continue;
+                }
+                {
+                    uint32_t on = sc.hn[cur_trk][h] != REST, now_on = k == cur && playing;
+                    uint16_t c = now_on ? C_WHITE : on ? hit_colour((uint32_t)h, hits) : PAL3;
+                    if (on)
+                        glow_at(x, y, 11, c, now_on ? 255u : 150u);
+                    if (k == sel)
+                        for (a = 0; a < 96u; a += 3u)
+                            cv_rect(x + 8 * CS[(a + 72u) % 96u] / 100, y - 8 * CS[a] / 100, 1, 1, ACC3);
+                    disc_at(x, y, now_on ? 5 : 4, c);
+                    if (sc.cd[cur_trk][h])         /* a condition: a dark pip */
+                        cv_rect(x - 1, y - 1, 2, 2, PAL6);
+                }
             }
         }
         {
@@ -559,33 +605,30 @@ static void draw(void)
     cv_blit(0, 40);
     /* the footer: in scale mode the black keys' map (each key's label over its place on the keyboard), else the
      * six tracks, the key and scale, the modes, the load */
-    if (scale_mode) {                        /* the 11 black keys alone, in their groups (3 2 3 2 1): a label row, the keys */
-        static const uint8_t GRP[11] = {0, 0, 0, 1, 1, 2, 2, 2, 3, 3, 4};
+    if (scale_mode) {                        /* the six keys that choose (the tracks are in the header): big labels, a bar each, MIX last */
         cv_begin(240, 34, C_BLACK);
-        for (k = 0; k < 11u; k++) {
+        for (k = 5; k < 11u; k++) {
             uint32_t arg, lit, a;
             const char *lbl;
-            char l4[5];
-            int32_t cx = 12 + (int32_t)k * 19 + (int32_t)GRP[k] * 7, x, lw, i;
+            char l5[6];
+            int32_t cx = 20 + (int32_t)(k - 5u) * 40, i, lw;
             uint16_t bright, dim;
             a = slot(k, &arg, &lbl, &lit);
-            switch (a) {                      /* the colours say what a key is: pages, track, a choice, MIX */
+            switch (a) {                      /* the colours say what a key is: a choice, MIX */
             case S_NONE: bright = dim = C_LINE; break;
-            case S_TRK: case S_MTRK: bright = TCOL[arg]; dim = (uint16_t)((TCOL[arg] >> 1) & 0x7BEFu); break;
             case S_MIX: bright = C_WHITE; dim = C_GRAY; break;
             default: bright = ACC2; dim = PAL0; break;
             }
-            cv_rect(cx - 8, 20, 16, 12, lit ? bright : dim);
+            cv_rect(cx - 15, 23, 30, 9, lit ? bright : dim);
             if (a == S_NONE)
                 continue;
-            for (i = 0; i < 4 && lbl[i]; i++)
-                l4[i] = lbl[i];
-            l4[i] = 0;
-            while (i > 1 && text_w(&FONT_T, l4) > 18)   /* keys are 19 px apart: a label that is wider loses a letter */
-                l4[--i] = 0;
-            lw = text_w(&FONT_T, l4);
-            x = clamp(cx - lw / 2, 0, 240 - lw);
-            cv_text(x, 3, &FONT_T, l4, lit ? bright : dim);
+            for (i = 0; i < 5 && lbl[i]; i++)
+                l5[i] = lbl[i];
+            l5[i] = 0;
+            while (i > 1 && text_w(&FONT_S, l5) > 38)
+                l5[--i] = 0;
+            lw = text_w(&FONT_S, l5);
+            cv_text(cx - lw / 2, 3, &FONT_S, l5, lit ? C_WHITE : ACC2);
         }
         cv_blit(0, 206);
         return;

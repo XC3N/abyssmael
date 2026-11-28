@@ -65,24 +65,32 @@ static void proj_name(uint32_t n, char *t)   /* its name, 8 characters at most *
     }
 }
 
-void app_say(const char *a, const char *b)
+static void say_show(const char *a, const char *b, int show);
+void app_say(const char *a, const char *b) { say_show(a, b, 1); }
+/* said aloud (the announcer) but not shown in the header: for switching pages and tracks, which the screen shows already */
+static void app_say_quiet(const char *a, const char *b) { say_show(a, b, 0); }
+static void say_show(const char *a, const char *b, int show)
 {
     uint32_t i;
     char t[48];
-    for (i = 0; i < 23u && a && a[i]; i++)
-        ui.msg[0][i] = a[i];
-    ui.msg[0][i] = 0;
-    for (i = 0; i < 23u && b && b[i]; i++)
-        ui.msg[1][i] = b[i];
-    ui.msg[1][i] = 0;
-    ui.msg_until = plat_ms() + 1300u;
+    if (show) {
+        for (i = 0; i < 23u && a && a[i]; i++)
+            ui.msg[0][i] = a[i];
+        ui.msg[0][i] = 0;
+        for (i = 0; i < 23u && b && b[i]; i++)
+            ui.msg[1][i] = b[i];
+        ui.msg[1][i] = 0;
+        ui.msg_until = plat_ms() + 1300u;
+    }
     ui.redraw = 1;
     if (ann_on()) {
         t[0] = 0;
-        text_cat(t, ui.msg[0]);
-        if (ui.msg[1][0]) {
+        for (i = 0; i < 23u && a && a[i]; i++)
+            t[i] = a[i];
+        t[i] = 0;
+        if (b && b[0]) {
             text_cat(t, " ");
-            text_cat(t, ui.msg[1]);
+            text_cat(t, b);
         }
         ann_say(t, 0, ANN_NOW);
     }
@@ -244,7 +252,7 @@ static void page_open(uint32_t pg, int sub)
         char n[4] = {' ', (char)('1' + sub), 0, 0};
         text_cat(t, n);
     }
-    app_say(t, page_title(pg, (uint32_t)sub));
+    app_say_quiet(t, page_title(pg, (uint32_t)sub));
 }
 
 static void track_pick(uint32_t t)
@@ -253,7 +261,7 @@ static void track_pick(uint32_t t)
     char n[2] = {(char)('1' + t), 0};
     cur_trk = (uint8_t)t;
     text_cat(s, n);
-    app_say(s, INST_NAME[sc.tp[t][TP_INST]]);
+    app_say_quiet(s, INST_NAME[sc.tp[t][TP_INST]]);
 }
 
 static int32_t scale_key_note(uint32_t wi)
