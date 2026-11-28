@@ -20,6 +20,9 @@ for ref in $(gh api 'repos/XC3N/abyssmael/pulls?state=open' --jq '.[].head.ref')
   fi
   echo "merged $ref"
 done
+if [ -n "$EXTRA_PATCH" ]; then   # EXTRA_PATCH=file.patch: a hand-resolved PR that conflicts with the others (list its branch in SKIP_REFS)
+  git apply "$EXTRA_PATCH" && git add -A src && git commit -q -m "test build: $(basename "$EXTRA_PATCH")" && echo "applied $EXTRA_PATCH"
+fi
 COMMIT=$(git rev-parse --short HEAD)
 BUILD_LABEL=test scripts/build-fw.sh all | tail -n 7
 T=/tmp/test-pub; rm -rf $T; mkdir -p $T
