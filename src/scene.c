@@ -22,16 +22,16 @@ static void track_inst(scene_t *s, uint32_t t, uint32_t inst)
         s->tp[t][TP_P0 + i] = INST_DEF[inst][i];
     for (i = 0; i < 8u; i++)
         s->tp[t][TP_ATK + i] = INST_DEF[inst][8 + i];
+    for (i = 0; i < 4u; i++)                         /* the filter's ADSR starts as the amp's: the sound as before */
+        s->tp[t][TP_FATK + i] = INST_DEF[inst][8 + i];
 }
 
 /* the four factory scenes */
 static void scene_factory(scene_t *s, uint32_t n)
 {
-    static const uint8_t INST[4][NTRK] = {
-        {I_DRONE, I_PAD, I_BELL, I_PLUCK, I_TEXTURE, I_BELL},
-        {I_PAD, I_BELL, I_BELL, I_PLUCK, I_TEXTURE, I_DRONE},
-        {I_DRONE, I_PLUCK, I_PAD, I_BELL, I_TEXTURE, I_PLUCK},
-        {I_DRONE, I_TEXTURE, I_BELL, I_PAD, I_TEXTURE, I_DRONE}};
+    /* the five tracks: the first three are the dynamic, tonal voices (bell, pluck, pad), the last two the background (drone,
+     * texture) */
+    const uint8_t *INST4 = TRACK_ROLE;
     static const uint8_t KEY[4] = {9, 4, 2, 1}, SCALE[4] = {1, 4, 2, 3}, TEMPO[4] = {70, 84, 76, 60};
     /* per track: density, rate, length, range, level, delay send, reverb send, octave */
     static const uint8_t GEN[NINST][8] = {
@@ -64,7 +64,7 @@ static void scene_factory(scene_t *s, uint32_t n)
     s->gp[GP_ACT] = 50;
     s->gp[GP_SPACE] = 60;
     for (t = 0; t < NTRK; t++) {
-        uint32_t inst = INST[n & 3u][t];
+        uint32_t inst = INST4[t];
         uint8_t *p = s->tp[t];
         uint32_t i;
         for (i = 0; i < NTP; i++)
@@ -107,12 +107,24 @@ static void scene_factory(scene_t *s, uint32_t n)
             s->hn[t][i] = DEF_HN[i], s->sn[t][i] = DEF_SN[i], s->cd[t][i] = C_ALWAYS;
         s->son[t] = 0x4949u;
     }
-    if (n == 2) {                            /* TIDE: a Euclidean pluck and a stepped one */
+    if (n == 2) {                            /* TIDE: a Euclidean pluck (track 2) and a stepped bell (track 1) */
         s->tp[1][TP_SMODE] = 1, s->tp[1][TP_RATE] = 1, s->tp[1][TP_EHITS] = 5, s->tp[1][TP_ELEN] = 8;
-        s->tp[5][TP_SMODE] = 2, s->tp[5][TP_RATE] = 1, s->tp[5][TP_OCT] = 4, s->tp[5][TP_SDIR] = 2;
+        s->tp[0][TP_SMODE] = 2, s->tp[0][TP_RATE] = 1, s->tp[0][TP_OCT] = 4, s->tp[0][TP_SDIR] = 2;
     }
-    if (n == 0)                              /* DEEP: the second bell an octave lower */
-        s->tp[5][TP_OCT] = 2, s->tp[5][TP_DENS] = 15, s->tp[5][TP_RATE] = 2;
+    if (n >= NFACT) {                        /* a new project: the same sounds, every sequencer silent, nothing to start from */
+        for (t = 0; t < NTRK; t++) {
+            uint32_t i;
+            s->tp[t][TP_SMODE] = 0;
+            s->tp[t][TP_DENS] = 0;
+            s->tp[t][TP_ARPON] = 0;
+            s->tp[t][TP_EHITS] = 1;
+            for (i = 0; i < 16u; i++)
+                s->hn[t][i] = REST, s->cd[t][i] = C_ALWAYS;
+            s->son[t] = 0;
+        }
+        s->gp[GP_DARK] = 40, s->gp[GP_ACT] = 50, s->gp[GP_SPACE] = 50;
+    }
+    /* (DEEP had a second bell an octave lower on a sixth track: there is no sixth track now) */
 }
 
 static int scene_ok(const scene_t *s)
@@ -133,16 +145,23 @@ static int scene_ok(const scene_t *s)
 }
 
 /* --------------------------------------------------------------- the am_store --- */
+static uint32_t proj_saved(uint32_t n)       /* a project of yours that holds something */
+{
+    return n >= NFACT && n < NLIST && (am_store.saved >> (n - NFACT) & 1u);
+}
 static void scene_use(uint32_t n)
 {
     scene_t s;
-    n &= 3u;
-    if (am_store.saved >> n & 1u)
-        s = am_store.slot[n];
+    if (n > NLIST)
+        n = 0;
+    if (n < NFACT)
+        scene_factory(&s, n);
+    else if (proj_saved(n))
+        s = am_store.slot[n - NFACT];
     else
-        scene_factory(&s, n);
+        scene_factory(&s, NFACT);
     if (!scene_ok(&s))
-        scene_factory(&s, n);
+        scene_factory(&s, n < NFACT ? n : NFACT);
     sc = s;
     am_store.cur = (uint8_t)n;
     palette_set(sc.gp[GP_THEME]);
