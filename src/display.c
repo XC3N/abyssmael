@@ -171,12 +171,16 @@ static void bell_metal(const uint8_t *p)
         uint32_t gr = gc >> 11, gg = (gc >> 5) & 63u, gb = gc & 31u;
         cv_rect(0, (int32_t)y, 240, 1, gc);
         for (x = 42; x < 198u; x++) {
-            int32_t ax = (int32_t)x - cxa, ay = (int32_t)y - cya, bx = (int32_t)x - cxb, by = (int32_t)y - cyb;
-            uint32_t da = (uint32_t)(ax * ax + ay * ay), db = (uint32_t)(bx * bx + by * by), ia = 0, ib = 0, r, g, b;
+            int32_t ax = (int32_t)x - cxa, ay = (int32_t)y - cya;
+            uint32_t da = (uint32_t)(ax * ax + ay * ay), db = 0xFFFFu, ia = 0, ib = 0, r, g, b;
             if (da <= 4096u)
                 ia = lut[d3_tab[da]];
-            if (two && db <= 4096u)
-                ib = lut[d3_tab[db]];
+            if (two) {
+                int32_t bx = (int32_t)x - cxb, by = (int32_t)y - cyb;
+                db = (uint32_t)(bx * bx + by * by);
+                if (db <= 4096u)
+                    ib = lut[d3_tab[db]];
+            }
             if (!(ia | ib))
                 continue;
             r = gr + ((9u * ia + 4u * ib) >> 8);
@@ -418,6 +422,8 @@ static void draw(void)
     char t[32];
     uint32_t k, now = plat_ms(), pg = ui.page, sub = ui.sub[pg];
     /* the header: the track and the page, or a message */
+    if (ui.mid_only)                         /* an animation frame: only the middle changes */
+        goto middle;
     cv_begin(240, 36, C_BLACK);
     if (now < ui.msg_until) {
         int32_t x = cv_text(8, 8, &FONT_B, ui.msg[0], C_WHITE);
@@ -465,6 +471,7 @@ static void draw(void)
     cv_blit(0, 0);
     /* the middle: HOME shows the six tracks, every other page its four values; in scale mode the footer is short, so
      * the middle is taller */
+middle:
     cv_begin(240, 162, C_BLACK);
     if (pg == PG_MIX) {                      /* five strips: level, activity, M and S; the track's mix below */
         {
@@ -789,6 +796,8 @@ static void draw(void)
         }
     }
     cv_blit(0, 40);
+    if (ui.mid_only)
+        return;
     /* the footer: in scale mode the black keys' map (each key's label over its place on the keyboard), else the
      * six tracks, the key and scale, the modes, the load */
     if (scale_mode) {                        /* the six keys that choose (the tracks are in the header): big labels, a bar each, MIX last */

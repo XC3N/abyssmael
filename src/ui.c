@@ -16,7 +16,7 @@ static struct {
     int8_t hold_step;                    /* SEQ 3, STEP: the white key held (K1 sets its note), -1 none */
     uint8_t hold_turned;
     int32_t knote[NKEYS];                /* the note each key started (so a key's note off finds it) */
-    uint8_t redraw;
+    uint8_t redraw, mid_only;            /* mid_only: the redraw is an animation frame (no header or footer) */
     uint8_t cpu_max, cpu_avg;            /* BUILD AND CPU page: the highest load seen, and a slow average */
     uint8_t pk[5];                       /* ... and the highest of each stage (S, B, V, F, R): held until K1 is turned */
     uint32_t cpu_at;

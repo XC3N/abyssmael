@@ -132,14 +132,17 @@ void app_frame(void)
     }
     {   /* the bell's METAL page moves: redraw about 14 times a second */
         static uint32_t last_anim;
-        if (bell_page(ui.page) && ui.page == PG_EDIT && ui.sub[PG_EDIT] == 0u && now - last_anim >= 70u) {
+        if (bell_page(ui.page) && ui.page == PG_EDIT && ui.sub[PG_EDIT] == 0u && now - last_anim >= 100u) {
             last_anim = now;
+            if (!ui.redraw)
+                ui.mid_only = 1;
             ui.redraw = 1;
         }
     }
     if (ui.redraw) {
         ui.redraw = 0;
         draw();
+        ui.mid_only = 0;
     }
 }
 
