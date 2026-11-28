@@ -120,13 +120,13 @@
         },
         {
           "label": "test",
-          "version": "0.6.143 (test)",
-          "commit": "8ed1e32",
+          "version": "0.6.145 (test)",
+          "commit": "ceb6a32",
           "built": "2026-11-28",
           "file": "abyssmael/test/test/abyssmael.fwsc",
-          "sha256": "4786b1007ce7c44f7866696909f3167d1ffecf08f386d58fd6121128d255ad52",
+          "sha256": "5ce9c51e376da11bc9e5b23570f8fc09a44797bcbf709d7c70ac67b4c890b03b",
           "wasm": "abyssmael/test/test/sim.wasm",
-          "wasmSha256": "cead4f185e999509240e67dfc51aead30f0960642ed8f2199d9780f1b3d0a38a",
+          "wasmSha256": "e5febe8d2c5e36fb5dcb97735e4b6169e1483359d82d6423cd5dc7a67f97a4a9",
           "notes": "main plus the open PRs (#10, #9, #8, #7, #6), merged as branch test-build"
         }
       ]
