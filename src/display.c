@@ -78,6 +78,14 @@ static void env_curve(uint8_t *pt, uint32_t a, uint32_t dc, uint32_t s, uint32_t
  * into two centres that circle slowly; the rings drift outward and brighten when the bell is struck. */
 static uint8_t d3_tab[4097];                 /* 3 x the distance (in pixels), for a squared distance 0..4096 */
 static uint8_t d3_ready, bell_ring, bell_last;
+/* a value in the big type, in the smaller one when it would run into the next column (FREE, 1/8., names) */
+static void big_value(int32_t x, const char *t)
+{
+    if (text_w(&FONT_L, t) > 56)
+        cv_text(x, 118, &FONT_M, t, C_WHITE);
+    else
+        cv_text(x, 114, &FONT_L, t, C_WHITE);
+}
 static void d3_init(void)
 {
     uint32_t r = 0, i;
@@ -370,7 +378,7 @@ static void bell_draw(uint32_t pg, uint32_t sub)
             cv_text(xx, 102, &FONT_T, nm, ACC2);
         }
         ref_text(ref, t);
-        cv_text(xx, 114, &FONT_L, t, C_WHITE);
+        big_value(xx, t);
     }
 }
 
@@ -410,7 +418,7 @@ static void fx_sync_draw(void)
         int32_t xx = 4 + (int32_t)k * 59;
         cv_text(xx, 102, &FONT_T, ref_name(ref), ACC2);
         ref_text(ref, t);
-        cv_text(xx, 114, &FONT_L, t, C_WHITE);
+        big_value(xx, t);
     }
 }
 
