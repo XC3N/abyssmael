@@ -130,6 +130,13 @@ void app_frame(void)
             ui.msg_until = 0;
         ui.redraw = 1;
     }
+    {   /* the bell's METAL page moves: redraw about 14 times a second */
+        static uint32_t last_anim;
+        if (bell_page(ui.page) && ui.page == PG_EDIT && ui.sub[PG_EDIT] == 0u && now - last_anim >= 70u) {
+            last_anim = now;
+            ui.redraw = 1;
+        }
+    }
     if (ui.redraw) {
         ui.redraw = 0;
         draw();

@@ -62,6 +62,81 @@ static void env_curve(uint8_t *pt, uint32_t a, uint32_t dc, uint32_t s, uint32_t
         pt[x] = (uint8_t)(v < 0 ? 0 : v);
     }
 }
+/* METAL, drawn per pixel: the distance of each pixel to the centre goes through a table, then two per-frame tables (the rings
+ * and the glow, by distance) give an intensity that is added to a ground that fades from indigo down. The beat splits it
+ * into two centres that circle slowly; the rings drift outward and brighten when the bell is struck. */
+static uint8_t d3_tab[4097];                 /* 3 x the distance (in pixels), for a squared distance 0..4096 */
+static uint8_t d3_ready, bell_ring, bell_last;
+static void bell_metal(const uint8_t *p)
+{
+    uint32_t ratio = p[TP_P0], idx = p[TP_P1], dec = p[TP_P2], beat = p[TP_P3];
+    uint32_t t = plat_ms(), act = trk_active[cur_trk], n = 3u + idx * 8u / 100u, gap3 = 3u * (5u + ratio * 8u / 100u), i, y, x;
+    uint32_t drift3 = (t * (6u + ratio * 12u / 100u) / 1000u) % gap3, en;
+    uint8_t lut[256];
+    int32_t cxa, cya, cxb, cyb, sep = (int32_t)beat * 14 / 100, two = beat >= 4u;
+    uint32_t ph = ((t & 0x3FFFFu) * (40u + beat * 240u / 100u)) / 6545u;
+    if (!d3_ready) {                         /* once: 3 x sqrt(d2) by counting */
+        uint32_t r = 0;
+        for (i = 0; i <= 4096u; i++) {
+            while ((r + 1u) * (r + 1u) <= i * 9u)
+                r++;
+            d3_tab[i] = (uint8_t)r;
+        }
+        d3_ready = 1;
+    }
+    if (act > bell_last)                      /* a note began on this track: the bell is struck */
+        bell_ring = 255;
+    bell_last = (uint8_t)act;
+    bell_ring = (uint8_t)(bell_ring - (uint32_t)bell_ring * (4u + dec * 16u / 100u) / 256u);
+    en = 64u + (uint32_t)bell_ring * 191u / 255u;       /* the rings' energy 64..255 */
+    for (i = 0; i < 256u; i++) {              /* intensity by 3 x distance: the rings, then the glow */
+        uint32_t v = 0, g, ri, w, hw3, f, th;
+        int32_t xx = (int32_t)i - 18 - (int32_t)drift3;
+        if (xx >= 0) {
+            ri = (uint32_t)xx / gap3;
+            w = (uint32_t)xx % gap3;
+            if (ri < n) {
+                th = 6u + (n - ri) * 16u / n;                           /* thickness in tenths of a pixel */
+                hw3 = th * 3u / 20u + 1u;
+                w = w > gap3 / 2u ? w - gap3 / 2u : gap3 / 2u - w;      /* distance from the ring's middle line, in 3x pixels */
+                v = w >= hw3 ? 0u : 255u - w * 255u / hw3;
+                f = (n + 1u - ri) * 255u / (n + 1u);
+                if (dec > 33u)
+                    f = f * f / 255u;
+                if (dec > 66u)
+                    f = f * f / 255u;
+                v = v * f / 255u * en / 255u;
+            }
+        }
+        g = i >= 162u ? 0u : (162u - i) * 255u / 162u;                 /* the glow: a soft disc, 0.3 at the middle */
+        g = g * g / 255u * (60u + (uint32_t)bell_ring * 80u / 255u) / 255u;
+        lut[i] = (uint8_t)(v + g > 255u ? 255u : v + g);
+    }
+    cxa = 120 - sep * (int32_t)(two) * SIN96[(ph + 72u) % 96u] / 100;
+    cya = 50 - sep * (int32_t)two * SIN96[(ph * 13u / 10u) % 96u] * 35 / 10000;
+    cxb = 120 + sep * (int32_t)two * SIN96[(ph + 72u) % 96u] / 100;
+    cyb = 50 + sep * (int32_t)two * SIN96[(ph * 13u / 10u) % 96u] * 35 / 10000;
+    for (y = 0; y < 100u; y++) {
+        uint16_t gc = mixc(PAL6, PAL4, y);      /* the ground fades from indigo to blue-teal going down */
+        uint32_t gr = gc >> 11, gg = (gc >> 5) & 63u, gb = gc & 31u;
+        cv_rect(0, (int32_t)y, 240, 1, gc);
+        for (x = 42; x < 198u; x++) {
+            int32_t ax = (int32_t)x - cxa, ay = (int32_t)y - cya, bx = (int32_t)x - cxb, by = (int32_t)y - cyb;
+            uint32_t da = (uint32_t)(ax * ax + ay * ay), db = (uint32_t)(bx * bx + by * by), ia = 0, ib = 0, r, g, b;
+            if (da <= 4096u)
+                ia = lut[d3_tab[da]];
+            if (two && db <= 4096u)
+                ib = lut[d3_tab[db]];
+            if (!(ia | ib))
+                continue;
+            r = gr + ((9u * ia + 4u * ib) >> 8);
+            g = gg + ((56u * ia + 42u * ib) >> 8);
+            b = gb + ((26u * ia + 20u * ib) >> 8);
+            cv_px[y * cv_w + x] = swap16((uint16_t)((r > 31u ? 31u : r) << 11 | (g > 63u ? 63u : g) << 5 | (b > 31u ? 31u : b)));
+        }
+    }
+}
+
 static void bell_draw(uint32_t pg, uint32_t sub)
 {
     const uint8_t *p = sc.tp[cur_trk];
@@ -79,19 +154,8 @@ static void bell_draw(uint32_t pg, uint32_t sub)
             pt[x] = (uint8_t)(pt[x] * (12 + (int32_t)p[TP_FENV] * 88 / 100) / 100);
         bell_graph(pt, 96, 88, ACC1, PAL3);
         cv_rect(4, 96 - 12 * 88 / 100, 232, 1, PAL0);        /* where the filter rests */
-    } else if (sub == 0u) {                  /* METAL: rings; ratio spaces them, index how many, decay how fast they fade, beat a second set */
-        uint32_t ratio = p[TP_P0], idx = p[TP_P1], dec = p[TP_P2], beat = p[TP_P3], n = 2u + idx * 7u / 100u, i, a;
-        for (i = 0; i < n; i++) {
-            int32_t r = 8 + (int32_t)i * (6 + (int32_t)ratio * 8 / 100);
-            uint32_t f = 100u - (i * (dec + 10u) / n > 100u ? 100u : i * (dec + 10u) / n);
-            if (r > 46)
-                break;
-            for (a = 0; a < 96u; a += 2u) {
-                bell_dot(cx - (int32_t)beat * 10 / 100, cy, r, a, mixc(PAL3, ACC3, f));
-                if (beat > 4u)
-                    bell_dot(cx + (int32_t)beat * 10 / 100, cy, r, a, mixc(PAL3, ACC1, f));
-            }
-        }
+    } else if (sub == 0u) {                  /* METAL: smooth rings and a glow, drawn pixel by pixel (see bell_metal) */
+        bell_metal(p);
     } else if (sub == 1u) {                  /* STRIKE: eight partials as bars: strike the height, partial how many sound, spread the gaps, tone the colour */
         uint32_t strike = p[TP_P4], part = p[TP_P5], spread = p[TP_P6], tone = p[TP_P7], i;
         int32_t gap = 8 + (int32_t)spread * 14 / 100;
