@@ -182,9 +182,14 @@ static void ref_text(uint32_t ref, char *t)
     default: int_text((int32_t)v, t); break;
     }
 }
+static uint32_t seq_count(uint32_t t);
 static uint32_t ref_frac(uint32_t ref)   /* 0..200: the bar */
 {
     const pdesc_t *d = ref_desc(ref);
+    if (ref == 0x62u) {                      /* the cursor: full on the last step or hit */
+        uint32_t n = seq_count(cur_trk);
+        return n > 1u ? (ui.cursor < n ? ui.cursor : n - 1u) * 200u / (n - 1u) : 0u;
+    }
     if (ref == TP_EROT) {
         uint32_t n = sc.tp[cur_trk][TP_ELEN];
         return n > 1u ? sc.tp[cur_trk][TP_EROT] % n * 200u / (n - 1u) : 0u;
@@ -786,8 +791,8 @@ static void input(void)
                 continue;
             }
             if (k == 0u && ui.page == PG_SEQ && ui.sub[PG_SEQ] == 2u && sc.tp[cur_trk][TP_SMODE]) {   /* K1: the cursor */
-                int32_t cnt = (int32_t)seq_count(cur_trk), c = ((int32_t)ui.cursor + e) % cnt;
-                ui.cursor = (uint8_t)(c < 0 ? c + cnt : c);
+                int32_t cnt = (int32_t)seq_count(cur_trk), c = clamp((int32_t)ui.cursor + e, 0, cnt - 1);   /* stops at the first and last */
+                ui.cursor = (uint8_t)c;
                 ui.redraw = 1;
                 continue;
             }
