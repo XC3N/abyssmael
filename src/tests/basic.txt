@@ -437,7 +437,7 @@ spin PRESET 1
 wait 40
 shot drone_a.png
 spin PRESET 1
-wait 40
+wait 3000
 shot drone_b.png
 spin PRESET 1
 wait 40
@@ -445,10 +445,10 @@ shot drone_c.png
 tapkey b4
 wait 40
 spin PRESET 1
-wait 40
+wait 3000
 shot texture_a.png
 spin PRESET 1
-wait 40
+wait 3000
 shot texture_b.png
 spin PRESET 1
 wait 40

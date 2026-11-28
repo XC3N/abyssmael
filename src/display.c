@@ -33,6 +33,13 @@ static uint16_t hit_colour(uint32_t h, uint32_t n)
     return RGB(c[0], c[1], c[2]);
 }
 
+static uint32_t pic_moves(void)         /* the pictures that move by themselves: the bell METAL, and the warp-field ones */
+{
+    uint32_t inst = sc.tp[cur_trk][TP_INST];
+    if (ui.page != PG_EDIT)
+        return 0;
+    return ui.sub[PG_EDIT] == 0u && inst == I_BELL ? 1u : (inst == I_TEXTURE && ui.sub[PG_EDIT] < 2u) || (inst == I_DRONE && ui.sub[PG_EDIT] == 1u);
+}
 static uint32_t bell_page(uint32_t pg)
 {
     return pg == PG_EDIT || pg == PG_ENV || pg == PG_LFO;
@@ -269,6 +276,61 @@ static void string_line(const uint32_t *h, int32_t cy, int32_t amp, uint32_t nh,
     }
     (void)h;
 }
+/* ---- the warp field (the idea from hadal's picture): a small 8-bit field, moved a little each frame by a flow that
+ * wobbles, faded, with marks added; a palette colours it, a 2x2 dither lifts the steps. Drone GRAIN and the texture
+ * pictures use it. 120 x 50, shown at twice the size. ---- */
+#define FW 120
+#define FH 50
+static uint8_t fld[2][FW * FH] PLAT_POOL;
+static uint8_t fld_cur, fld_key = 0xFFu;
+static uint32_t fld_t, fld_rng = 99u;
+static uint16_t fld_lut[16];
+static uint32_t fld_rand(void) { fld_rng = fld_rng * 1103515245u + 12345u; return fld_rng >> 8; }
+static void fld_mark(int32_t x, int32_t y, uint32_t v)
+{
+    uint32_t o;
+    if ((uint32_t)x >= FW || (uint32_t)y >= FH)
+        return;
+    o = (uint32_t)y * FW + (uint32_t)x;
+    fld[fld_cur][o] = (uint8_t)(fld[fld_cur][o] + v > 255u ? 255u : fld[fld_cur][o] + v);
+}
+/* one frame: flow (x, y in 1/16 px a frame), wobble (rows swaying, 0..), decay 0..255, then show it in the picture */
+static void fld_step(int32_t flx, int32_t fly, int32_t wob, uint32_t decay)
+{
+    uint8_t *S = fld[fld_cur], *D = fld[fld_cur ^ 1u];
+    int32_t x, y;
+    fld_t++;
+    for (y = 0; y < FH; y++) {
+        int32_t sw = (int32_t)(fm_sinf((float)y * 0.31f + (float)fld_t * 0.11f) * (float)wob * 16.0f);
+        for (x = 0; x < FW; x++) {
+            int32_t sx = x * 16 - flx - sw, sy = y * 16 - fly, ix = sx >> 4, iy = sy >> 4, fx = sx & 15, fy = sy & 15, v;
+            int32_t a, b;
+            if (ix < 0) ix += FW;
+            if (ix >= FW) ix -= FW;
+            if (iy < 0) iy = 0;
+            if (iy >= FH - 1) iy = FH - 2;
+            a = S[iy * FW + ix] * (16 - fx) + S[iy * FW + (ix + 1) % FW] * fx;
+            b = S[(iy + 1) * FW + ix] * (16 - fx) + S[(iy + 1) * FW + (ix + 1) % FW] * fx;
+            v = ((a * (16 - fy) + b * fy) >> 8) * (int32_t)decay >> 8;
+            D[y * FW + x] = (uint8_t)(v > 0 ? v - (v > 2) : 0);
+        }
+    }
+    fld_cur ^= 1u;
+}
+static void fld_show(uint16_t lo, uint16_t mid, uint16_t hi, int32_t gain)
+{
+    static const int8_t BY[4] = {-5, 3, 5, -3};
+    const uint8_t *F = fld[fld_cur];
+    int32_t x, y, i;
+    for (i = 0; i < 16; i++)             /* the ramp: ground, then mid, then hi */
+        fld_lut[i] = i < 8 ? mixc(lo, mid, (uint32_t)i * 100u / 7u) : mixc(mid, hi, (uint32_t)(i - 8) * 100u / 7u);
+    for (y = 0; y < 100; y++)
+        for (x = 0; x < 240; x++) {
+            int32_t v = F[(y >> 1) * FW + (x >> 1)] * gain / 2 + BY[(y & 1) * 2 + (x & 1)];
+            v = v < 0 ? 0 : v > 255 ? 255 : v;
+            cv_px[(uint32_t)y * cv_w + (uint32_t)x] = swap16(fld_lut[v >> 4]);
+        }
+}
 static void inst_pic(const uint8_t *p, uint32_t sub)
 {
     uint32_t inst = p[TP_INST], a = p[TP_P0 + sub * 4u], b = p[TP_P1 + sub * 4u], c = p[TP_P2 + sub * 4u], e = p[TP_P3 + sub * 4u], i, rng = 12345u + inst * 977u + sub * 31u;
@@ -325,42 +387,53 @@ static void inst_pic(const uint8_t *p, uint32_t sub)
             if (a > 4u)
                 cv_rect(120 - len / 2 + (int32_t)a / 8, by + 14, len, 2, ACC1);
         }
-    } else if (inst == I_DRONE) {            /* GRAIN: breath, drive, drift, noise: a wave driven into clipping, noise sprinkled on it */
-        float amp = 14.0f + (float)b * 0.44f;
-        static int32_t y16[232];
-        glow_at(120, 50, 12 + (int32_t)a / 10, PAL0, 150u);
-        for (x = 0; x < 232; x++) {
-            float u = (float)x / 231.0f, v = amp * 2.0f * fm_sinf(6.2831853f * (4.0f * u + (float)c / 100.0f * u * u));
-            v = v > 36.0f ? 36.0f : v < -36.0f ? -36.0f : v;
-            y16[x] = (int32_t)((50.0f - v) * 16.0f);
-            rng = rng * 1103515245u + 12345u;
-            if ((rng >> 16) % 100u < e / 2u)
-                cv_rect(4 + x, (int32_t)(y16[x] >> 4) + (int32_t)((rng >> 8) % 9u) - 4, 1, 1, ACC2);
+    } else if (inst == I_DRONE || inst == I_TEXTURE) {   /* the warp field: GRAIN (breath, drive, drift, noise), WEATHER (color, width, gust, depth), DUST (crackle, pitched, move, hiss) */
+        uint8_t key = (uint8_t)(inst * 2u + sub);
+        int32_t r, j, k;
+        uint32_t decay = 236u;
+        int32_t flx = 6, fly = 0, wob = 0;
+        if (fld_key != key) {
+            for (r = 0; r < FW * FH; r++)
+                fld[0][r] = fld[1][r] = 0;
+            fld_key = key;
         }
-        wave_draw(y16, 232);
-    } else if (inst == I_TEXTURE && sub == 0u) { /* WEATHER: color, width, gust, depth: clouds, in layers, spread by the gust */
-        uint32_t n = 1u + e * 3u / 100u;
-        for (i = 0; i < n; i++)
-            for (x = 0; x < 4; x++) {
-                rng = rng * 1103515245u + 12345u;
-                glow_at(30 + (int32_t)((rng >> 16) % 180u), 28 + (int32_t)i * 18 + ((int32_t)((rng >> 8) % 9u) - 4) * (int32_t)c / 40, 10 + (int32_t)b / 8,
-                        mixc(PAL0, ACC3, a), 120u);
+        if (inst == I_DRONE) {               /* a wave driven into clipping, written into the field each frame, smeared by the drift */
+            float amp = 6.0f + (float)b * 0.17f;
+            flx = 4 + (int32_t)c / 10;
+            wob = (int32_t)c / 40;
+            decay = 230u + a / 10u;
+            for (r = 0; r < FW; r++) {
+                float u = (float)r / (float)(FW - 1), v = amp * fm_sinf(6.2831853f * (3.0f * u + (float)fld_t * 0.02f));
+                v = v > 16.0f ? 16.0f : v < -16.0f ? -16.0f : v;
+                fld_mark(r, FH / 2 - (int32_t)v, 110u);
+                fld_mark(r, FH / 2 - (int32_t)v + 1, 70u);
             }
-    } else {                                 /* DUST: crackle, pitched, move, hiss: specks, a few bright and pitched, streaks of the movement */
-        for (i = 0; i < 12u + a; i++) {
-            rng = rng * 1103515245u + 12345u;
-            x = 4 + (int32_t)((rng >> 16) % 230u);
-            y = 2 + (int32_t)((rng >> 8) % 96u);
-            cv_rect(x, y, 1 + (int32_t)(b > 50u && i % 5u == 0u), 1, i % 7u ? ACC2 : ACC3);
-            if (b > 20u && i % 9u == 0u)
-                glow_at(x, y, 6, ACC2, b);
-            if (c > 20u && i % 4u == 0u)
-                cv_rect(x, y, 1 + (int32_t)c / 6, 1, PAL0);
+            for (r = 0; r < (int32_t)e / 6; r++)
+                fld_mark((int32_t)(fld_rand() % FW), (int32_t)(fld_rand() % FH), 120u);
+        } else if (sub == 0u) {              /* clouds: soft blobs born at the right, carried left, sheared by the gust */
+            flx = -(6 + (int32_t)c / 8);
+            wob = (int32_t)c / 60;
+            decay = 238u + e / 25u;
+            if (fld_t % 4u == 0u) {
+                int32_t cy = 6 + (int32_t)(fld_rand() % 38u), rr = 4 + (int32_t)b / 8;
+                for (j = -rr; j <= rr; j++)
+                    for (k = -rr; k <= rr; k++)
+                        if (j * j + k * k <= rr * rr)
+                            fld_mark(FW - 1 - rr + j, cy + k, 70u + a / 2u - (uint32_t)(j * j + k * k) * 40u / (uint32_t)(rr * rr + 1));
+            }
+        } else {                             /* specks, some bright, the move streaking them */
+            flx = (int32_t)c / 4;
+            fly = -(int32_t)e / 6;
+            decay = 225u + c / 12u;
+            for (r = 0; r < (int32_t)(2u + a / 10u); r++) {
+                int32_t px = (int32_t)(fld_rand() % FW), py = (int32_t)(fld_rand() % FH);
+                fld_mark(px, py, b > 50u && r % 3 == 0 ? 255u : 140u);
+                if (b > 20u && r % 4 == 0)
+                    fld_mark(px + 1, py, 120u), fld_mark(px, py + 1, 120u);
+            }
         }
-        for (i = 0; i < e / 2u; i++) {
-            rng = rng * 1103515245u + 12345u;
-            cv_rect((int32_t)((rng >> 16) % 236u), (int32_t)((rng >> 8) % 100u), 1, 1, PAL3);
-        }
+        fld_step(flx, fly, wob, decay);
+        fld_show(GND_A, inst == I_TEXTURE && sub == 0u ? mixc(PAL0, ACC3, a) : PAL0, ACC2, inst == I_DRONE ? 2 : 6);
     }
 }
 /* ---- ENV and LFO pages: a smooth curve with a glow, drawn to a sixteenth of a pixel ---- */
