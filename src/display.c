@@ -273,10 +273,28 @@ static void draw(void)
             text_cat(t, "/");
             { char c[4]; int_text((int32_t)len, c); text_cat(t, c); }
             cv_text(126, 8, &FONT_B, t, C_WHITE);
-            cv_text(126, 26, &FONT_XS, "HITS", C_GRAY);
-            int_text((int32_t)rot, t);
-            cv_text(126, 46, &FONT_B, t, C_WHITE);
-            cv_text(126, 64, &FONT_XS, "ROTATE", C_GRAY);
+            {   /* DRIFT moves the hits and rotation in play away from the knobs: show what the knobs are set to */
+                uint32_t sh = p[TP_EHITS] > len ? len : p[TP_EHITS], sr = p[TP_EROT] % len;
+                char u[16], n[8];
+                u[0] = 0;
+                text_cat(u, "HITS");
+                if (hits != sh) {
+                    text_cat(u, " SET ");
+                    int_text((int32_t)sh, n);
+                    text_cat(u, n);
+                }
+                cv_text(126, 26, &FONT_XS, u, hits != sh ? C_HI : C_GRAY);
+                int_text((int32_t)rot, t);
+                cv_text(126, 46, &FONT_B, t, C_WHITE);
+                u[0] = 0;
+                text_cat(u, "ROTATE");
+                if (rot != sr) {
+                    text_cat(u, " SET ");
+                    int_text((int32_t)sr, n);
+                    text_cat(u, n);
+                }
+                cv_text(126, 64, &FONT_XS, u, rot != sr ? C_HI : C_GRAY);
+            }
             if (h >= 0) {
                 uint32_t d = sc.hn[cur_trk][h];
                 cv_text(126, 84, &FONT_B, d == REST ? "-" : NOTE_NAME[(uint32_t)degree_note((int32_t)d, 0) % 12u], C_HI);

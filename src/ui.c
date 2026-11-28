@@ -162,6 +162,8 @@ static void ref_text(uint32_t ref, char *t)
     const pdesc_t *d = ref_desc(ref);
     uint32_t v = *ref_ptr(ref);
     t[0] = 0;
+    if (ref == TP_EROT)                      /* ROTATE only counts up to the steps: 15 on 12 steps is 3 */
+        v %= sc.tp[cur_trk][TP_ELEN];
     switch (d->kind) {
     case K_ENUM: text_cat(t, d->names[v]); break;
     case K_OCT: int_text((int32_t)v - 3, t); break;
@@ -183,6 +185,10 @@ static void ref_text(uint32_t ref, char *t)
 static uint32_t ref_frac(uint32_t ref)   /* 0..200: the bar */
 {
     const pdesc_t *d = ref_desc(ref);
+    if (ref == TP_EROT) {
+        uint32_t n = sc.tp[cur_trk][TP_ELEN];
+        return n > 1u ? sc.tp[cur_trk][TP_EROT] % n * 200u / (n - 1u) : 0u;
+    }
     return d->hi > d->lo ? (uint32_t)(*ref_ptr(ref) - d->lo) * 200u / (uint32_t)(d->hi - d->lo) : 0u;
 }
 
@@ -192,6 +198,10 @@ static void ref_turn(uint32_t ref, int32_t e)
     uint8_t *p = ref_ptr(ref);
     int32_t v = clamp((int32_t)*p + e * (int32_t)d->step, d->lo, d->hi);
     char t[16];
+    if (ref == TP_EROT) {                    /* ROTATE runs 0 to steps - 1, from where it shows */
+        int32_t n = (int32_t)sc.tp[cur_trk][TP_ELEN];
+        v = clamp((int32_t)(*p % (uint32_t)n) + e, 0, n - 1);
+    }
     if (d->kind == K_SLEEP) {                /* OFF, then 5 to 120 minutes in fives (GP_SLEEP 1, 5, 9 ... 97) */
         int32_t m = clamp((int32_t)sleep_minutes(*p) + e * 5, 0, 120);
         v = m ? (m / 5 - 1) * 4 + 1 : 0;
